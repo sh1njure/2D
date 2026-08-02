@@ -32,6 +32,10 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v4
+      # Enables Pages on the repo automatically (no manual Settings step).
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
