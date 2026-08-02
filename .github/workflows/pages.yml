@@ -32,10 +32,9 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v4
-      # Enables Pages on the repo automatically (no manual Settings step).
-      - uses: actions/configure-pages@v5
-        with:
-          enablement: true
+      # NOTE: Pages must be enabled ONCE by hand first — repo Settings -> Pages
+      # -> Source: "GitHub Actions". The workflow token cannot create the Pages
+      # site itself ("Resource not accessible by integration"), so we don't try.
       - uses: actions/setup-node@v4
         with:
           node-version: "22"

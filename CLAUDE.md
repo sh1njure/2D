@@ -410,19 +410,26 @@ python scripts/parse_demo.py <path.dem> > out.json
       - **Debug overlay proves alignment**: demo-derived spawns land on the
         overview's official spawn anchors, and all 21 rounds' bomb plants cluster
         on the official A/B sites. Toggle it with the "debug overlay" button.
-      - **awpy's own asset CDN (awpycs.com) is blocked** by this environment's
-        network policy, so the radar *bitmap* isn't bundled. The viewer renders a
-        calibrated grid backdrop and works fully; drop a 1024×1024
-        `de_inferno.png` into `frontend/public/maps/` and it appears under the
-        dots. Calibration + transform are already correct without it.
+      - **Radar bitmaps + calibration for the whole active-duty pool** are bundled
+        in `frontend/public/maps/` (mirage, inferno, nuke, overpass, ancient,
+        anubis, dust2, train, vertigo). Both the 1024² radar PNGs and the
+        `pos_x/pos_y/scale` come from the CS2 game depot via
+        `MurkyYT/cs2-map-icons` (awpy's own CDN awpycs.com is blocked here). If a
+        map JSON/PNG is missing, the viewer falls back to a calibrated grid.
+      - **Verified for de_inferno** (the demo we have) via the debug overlay:
+        spawns/plants land on the real radar's spawns/sites. Other maps use the
+        identical transform + same-source constants; verify each with its own
+        demo when available.
+      - **Multi-level maps (nuke/vertigo/train)** currently render the UPPER radar
+        only; lower-level radar + `lower_level_max_units` switching is a TODO.
       - Viewer loads any `out.json` via a drop-zone; a local sample can be
         bundled with `make sample` (gitignored, not committed).
       - Colours players by team (A=ochre/started-T, B=blue/started-CT), view
         cones from yaw, kill ✕ markers, utility blooms, bomb marker, scrub bar
         with event notches, round rail, live scoreboard.
-      - Only de_inferno is calibrated so far (that's the demo we have). Each other
-        active-duty map needs its overview constants + radar added to
-        `public/maps/` — same pattern.
+      - **Pages preview** (`.github/workflows/pages.yml`) deploys the static
+        viewer to GitHub Pages. One-time manual step: repo Settings → Pages →
+        Source "GitHub Actions" (the workflow token cannot enable Pages itself).
 - [ ] Phase 3 — Backend (upload, queue, worker, persistence, accounts)
 - [ ] Phase 4 — AI analysis layer
 - [ ] Phase 5 — Payments & access control
