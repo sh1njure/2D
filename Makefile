@@ -4,7 +4,7 @@
 # instead of failing. They start doing real work in the phase that adds code.
 
 .DEFAULT_GOAL := help
-.PHONY: help up down logs ps test lint fmt
+.PHONY: help up down logs ps test lint fmt viewer sample
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -44,3 +44,12 @@ lint: ## Lint backend + frontend (once they exist)
 
 fmt: ## Auto-format backend
 	@if [ -f backend/pyproject.toml ]; then cd backend && ruff format .; fi
+
+viewer: ## Run the offline viewer (Phase 2) dev server
+	cd frontend && npm install && npm run dev
+
+sample: ## Bundle a parsed demo into the viewer (usage: make sample DEM=path/to.dem)
+	@test -n "$(DEM)" || { echo "usage: make sample DEM=path/to.dem"; exit 1; }
+	mkdir -p frontend/public/demo
+	cd backend && . .venv/bin/activate && python scripts/parse_demo.py "$(abspath $(DEM))" > ../frontend/public/demo/sample.json
+	@echo "Bundled sample -> frontend/public/demo/sample.json (gitignored)"

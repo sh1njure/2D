@@ -400,7 +400,29 @@ python scripts/parse_demo.py <path.dem> > out.json
         `warnings[]` entry that the real score is likely one higher (13–9).
       - `bomb_planted.site` is a numeric entity id, not 'A'/'B'; site letter is a
         Phase 2 job (derive from plant coordinates + awpy map data).
-- [ ] Phase 2 — Offline viewer (coordinate transform)
+- [x] **Phase 2** — Offline viewer (coordinate transform). **← awaiting your review.**
+      React + TS + Vite + Tailwind + Canvas 2D. Notes:
+      - **Coordinate transform verified.** Ported awpy's exact formula
+        (`awpy.plot.utils.game_to_pixel_axis`): `px=(x-pos_x)/scale`,
+        `py=(pos_y-y)/scale` on a 1024 radar. Constants for de_inferno
+        (`pos_x=-2087, pos_y=3870, scale=4.9`) come from the CS2 game overview
+        file (SteamDatabase/GameTracking-CS2), not memory.
+      - **Debug overlay proves alignment**: demo-derived spawns land on the
+        overview's official spawn anchors, and all 21 rounds' bomb plants cluster
+        on the official A/B sites. Toggle it with the "debug overlay" button.
+      - **awpy's own asset CDN (awpycs.com) is blocked** by this environment's
+        network policy, so the radar *bitmap* isn't bundled. The viewer renders a
+        calibrated grid backdrop and works fully; drop a 1024×1024
+        `de_inferno.png` into `frontend/public/maps/` and it appears under the
+        dots. Calibration + transform are already correct without it.
+      - Viewer loads any `out.json` via a drop-zone; a local sample can be
+        bundled with `make sample` (gitignored, not committed).
+      - Colours players by team (A=ochre/started-T, B=blue/started-CT), view
+        cones from yaw, kill ✕ markers, utility blooms, bomb marker, scrub bar
+        with event notches, round rail, live scoreboard.
+      - Only de_inferno is calibrated so far (that's the demo we have). Each other
+        active-duty map needs its overview constants + radar added to
+        `public/maps/` — same pattern.
 - [ ] Phase 3 — Backend (upload, queue, worker, persistence, accounts)
 - [ ] Phase 4 — AI analysis layer
 - [ ] Phase 5 — Payments & access control

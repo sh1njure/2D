@@ -1,0 +1,17 @@
+{
+  "map": "de_inferno",
+  "radar_size": 1024,
+  "pos_x": -2087,
+  "pos_y": 3870,
+  "scale": 4.9,
+  "lower_level_max_units": null,
+  "source": "CS2 game overview de_inferno.txt (SteamDatabase/GameTracking-CS2)",
+  "note": "pos_x/pos_y/scale are the authoritative CS2 overview values. Transform matches awpy.plot.utils.game_to_pixel_axis: px=(x-pos_x)/scale, py=(pos_y-y)/scale on a radar_size square. Verify visually on the /debug overlay.",
+  "reference_points": {
+    "_comment": "Fractions of radar_size from the overview file — the officially declared spawn/site anchors, drawn on the debug overlay to check alignment.",
+    "ct_spawn": [0.9, 0.35],
+    "t_spawn": [0.1, 0.67],
+    "bomb_a": [0.81, 0.69],
+    "bomb_b": [0.49, 0.22]
+  }
+}

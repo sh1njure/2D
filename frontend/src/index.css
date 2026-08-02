@@ -1,0 +1,53 @@
+/* Self-hosted fonts (no external font CDN — offline-safe). Three roles only:
+   display (Chakra Petch), body (Inter), numeric mono (IBM Plex Mono). */
+@import "@fontsource/chakra-petch/500.css";
+@import "@fontsource/chakra-petch/600.css";
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------------------------------------------------------------------------
+   Token layer — the ONLY place raw hex lives. Grounded in radar cartography:
+   a slate-navy base (not #0a0a0a), team colours as functional accents, and one
+   ember signal borrowed from Inferno, reserved for the live playhead.
+--------------------------------------------------------------------------- */
+:root {
+  --bg: #0e1419;        /* slate navy base */
+  --surface: #161d24;   /* panels */
+  --raised: #1e2830;    /* hover / active surface */
+  --grid: #2a343d;      /* cartographic hairlines, borders */
+  --ink: #e6edf2;       /* primary text */
+  --muted: #8a98a5;     /* secondary text, labels */
+  --ct: #4fa3c7;        /* radar CT blue */
+  --t: #c79a4f;         /* site ochre / T tan */
+  --live: #d8654a;      /* ember — playhead & active round ONLY */
+}
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "Inter", system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* All numbers use tabular figures so ticks/timings/economy never reflow. */
+.num { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+.display { font-family: "Chakra Petch", system-ui, sans-serif; letter-spacing: 0.01em; }
+
+/* Visible keyboard focus (quality floor). */
+:focus-visible { outline: 2px solid var(--ct); outline-offset: 2px; }
+
+/* Respect reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}

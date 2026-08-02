@@ -18,6 +18,10 @@ node_modules/
 frontend/dist/
 *.local
 
+# Bundled demo sample for the viewer is derived data (3-4 MB) — not committed.
+# The app's drop-zone loads any out.json; `make sample` re-creates this locally.
+frontend/public/demo/
+
 # Runtime data — uploads are transient, derived data lives in Postgres.
 # Nothing here should ever be committed.
 data/uploads/
@@ -30,3 +34,4 @@ out*.json
 .DS_Store
 .idea/
 .vscode/
+frontend/*.tsbuildinfo
