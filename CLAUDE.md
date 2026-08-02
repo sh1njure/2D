@@ -386,8 +386,20 @@ python scripts/parse_demo.py <path.dem> > out.json
 ## 8. Phase status
 
 - [x] **Phase 0** — Agreement: this file, `docker-compose.yml`, `Makefile`,
-      proposed data model. **← awaiting your review.**
-- [ ] Phase 1 — Standalone `parse_demo.py` → `out.json`
+      proposed data model.
+- [x] **Phase 1** — Standalone `parse_demo.py` → `out.json`. **← awaiting your review.**
+      Verified against the one real demo. Notes:
+      - Installed + pinned: `demoparser2==0.41.4`, `awpy==2.0.2` (API introspected,
+        not guessed; re-introspect before bumping).
+      - The sample demo is **de_inferno**, not Mirage. Doesn't affect parsing, but
+        the Phase 2 coordinate work will start on whatever map(s) we have demos for.
+      - demoparser2's header does not expose tickrate; we assume 64 (CS2 standard)
+        and flag `tickrate_assumed: true` rather than invent a value.
+      - The sample recording is truncated on the final round (22 freeze-ends, 21
+        official ends) → parser keeps 21 complete rounds, reports 12–9, and emits a
+        `warnings[]` entry that the real score is likely one higher (13–9).
+      - `bomb_planted.site` is a numeric entity id, not 'A'/'B'; site letter is a
+        Phase 2 job (derive from plant coordinates + awpy map data).
 - [ ] Phase 2 — Offline viewer (coordinate transform)
 - [ ] Phase 3 — Backend (upload, queue, worker, persistence, accounts)
 - [ ] Phase 4 — AI analysis layer
