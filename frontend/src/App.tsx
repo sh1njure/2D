@@ -9,6 +9,10 @@ import { ScrubBar } from "./components/ScrubBar";
 
 const CANVAS = 720;
 
+// Prefix a public asset path with the deploy base (import.meta.env.BASE_URL is
+// "/" locally, "/2D/" on GitHub Pages), so fetches work under a subpath.
+const asset = (p: string) => `${import.meta.env.BASE_URL}${p.replace(/^\//, "")}`;
+
 export default function App() {
   const [cal, setCal] = useState<MapCalibration | null>(null);
   const [radarImg, setRadarImg] = useState<HTMLImageElement | null>(null);
@@ -22,19 +26,19 @@ export default function App() {
   // Load calibration + (optional) radar bitmap once we know the map.
   useEffect(() => {
     const map = demo?.match.map ?? "de_inferno";
-    fetch(`/maps/${map}.json`)
+    fetch(asset(`maps/${map}.json`))
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`no calibration for ${map}`))))
       .then(setCal)
       .catch(() => setError(`Missing map calibration for ${map}.`));
     const img = new Image();
     img.onload = () => setRadarImg(img);
     img.onerror = () => setRadarImg(null); // fall back to calibrated grid
-    img.src = `/maps/${map}.png`;
+    img.src = asset(`maps/${map}.png`);
   }, [demo?.match.map]);
 
   // Try to auto-load a bundled sample; otherwise the drop-zone waits.
   useEffect(() => {
-    fetch("/demo/sample.json")
+    fetch(asset("demo/sample.json"))
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d: Demo) => setDemo(d))
       .catch(() => {});
