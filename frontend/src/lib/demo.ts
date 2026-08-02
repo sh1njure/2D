@@ -66,8 +66,9 @@ export interface Round {
   utility: UtilityEvent[];
 }
 
-// One player's state in a frame: [x, y, z, yaw, health, alive(0/1)].
-export type SlotFrame = [number, number, number, number, number, number];
+// One player's state in a frame:
+//   [x, y, z, yaw, health, alive(0/1), weaponIdx(-1|table), money].
+export type SlotFrame = [number, number, number, number, number, number, number, number];
 // A frame: [tick, [SlotFrame per slot]].
 export type Frame = [number, SlotFrame[]];
 
@@ -80,6 +81,7 @@ export interface PositionRound {
 export interface Positions {
   tps: number;
   player_slots: string[]; // steamid per column
+  weapon_table: string[]; // weaponIdx -> weapon name
   frame_layout: string[];
   rounds: PositionRound[];
 }
@@ -181,9 +183,10 @@ export function interpolateFrame(pr: PositionRound, tick: number): SlotFrame[] |
   const b = frames[j][1];
   return a.map((sa, s) => {
     const sb = b[s];
-    if (!sa) return sb ?? [0, 0, 0, 0, 0, 0];
+    if (!sa) return sb ?? [0, 0, 0, 0, 0, 0, -1, 0];
     if (!sb) return sa;
     const L = (u: number, v: number) => u + (v - u) * frac;
+    // positions/yaw interpolate; hp/alive/weapon/money take the earlier frame.
     return [
       L(sa[0], sb[0]),
       L(sa[1], sb[1]),
@@ -191,8 +194,46 @@ export function interpolateFrame(pr: PositionRound, tick: number): SlotFrame[] |
       lerpAngle(sa[3], sb[3], frac),
       sa[4],
       sa[5],
+      sa[6],
+      sa[7],
     ] as SlotFrame;
   });
+}
+
+/** Weapon name for a weapon index, or null. */
+export function weaponName(demo: Demo, idx: number): string | null {
+  if (idx < 0 || !demo.positions) return null;
+  return demo.positions.weapon_table[idx] ?? null;
+}
+
+export interface LiveStat {
+  kills: number;
+  deaths: number;
+  assists: number;
+}
+
+/** Cumulative K/D/A per steamid as of an absolute tick (scans all rounds'
+ *  kills up to `absTick`), so the scoreboard reads live during playback. */
+export function liveStats(demo: Demo, absTick: number): Map<string, LiveStat> {
+  const m = new Map<string, LiveStat>();
+  const get = (sid: string) => {
+    let s = m.get(sid);
+    if (!s) {
+      s = { kills: 0, deaths: 0, assists: 0 };
+      m.set(sid, s);
+    }
+    return s;
+  };
+  for (const p of demo.players) get(p.steamid);
+  for (const r of demo.rounds) {
+    for (const k of r.kills) {
+      if (k.tick > absTick) continue;
+      if (k.attacker) get(k.attacker).kills++;
+      if (k.victim) get(k.victim).deaths++;
+      if (k.assister) get(k.assister).assists++;
+    }
+  }
+  return m;
 }
 
 // --- event log ----------------------------------------------------------------
