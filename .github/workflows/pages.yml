@@ -6,6 +6,7 @@
 #
 # One-time setup: repo Settings -> Pages -> Build and deployment -> Source:
 # "GitHub Actions". Then this runs on every push to the branch below.
+# (Pages enabled 2026-08-02.)
 name: Deploy viewer to Pages
 
 on:
