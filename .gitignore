@@ -1,0 +1,31 @@
+# Secrets — never commit real values. Only .env.example is tracked.
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Node / frontend
+node_modules/
+frontend/dist/
+*.local
+
+# Runtime data — uploads are transient, derived data lives in Postgres.
+# Nothing here should ever be committed.
+data/uploads/
+data/tmp/
+*.dem
+out.json
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/

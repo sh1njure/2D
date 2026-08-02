@@ -1,0 +1,98 @@
+# -----------------------------------------------------------------------------
+# Single-VPS deployment. Target: Hostinger KVM 2 (2 vCPU, 8 GB RAM, 100 GB NVMe).
+# Everything runs here under one `docker compose up`. No Kubernetes, no managed
+# cloud, no serverless.
+#
+# PHASE 0 STATE:
+#   Live now:      db, redis      (the infrastructure the app will build on)
+#   Commented out: backend, worker, frontend, nginx, certbot
+#                  These are turned on in the phase that creates their code, so
+#                  `make up` today brings up a working Postgres + Redis and
+#                  nothing that references code that does not yet exist.
+#
+# The commented services below are the AGREED target architecture, kept here so
+# the shape of the deployment is visible from day one. Do not delete them.
+# -----------------------------------------------------------------------------
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      # Exposed locally for development/inspection. Remove in production so
+      # Postgres is only reachable inside the compose network.
+      - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports:
+      - "6379:6379"
+
+  # --- Activated in Phase 3 (backend around the parser) -----------------------
+  # backend:
+  #   build: ./backend
+  #   restart: unless-stopped
+  #   env_file: .env
+  #   depends_on:
+  #     db: { condition: service_healthy }
+  #     redis: { condition: service_healthy }
+  #   volumes:
+  #     - uploads:/data/uploads
+  #   ports:
+  #     - "8000:8000"
+
+  # worker:
+  #   build: ./backend
+  #   restart: unless-stopped
+  #   command: ["python", "-m", "app.workers.run"]
+  #   env_file: .env
+  #   depends_on:
+  #     db: { condition: service_healthy }
+  #     redis: { condition: service_healthy }
+  #   volumes:
+  #     - uploads:/data/uploads      # shared with backend: worker reads, then deletes
+
+  # --- Activated in Phase 2/3 (frontend) --------------------------------------
+  # frontend:
+  #   build: ./frontend
+  #   restart: unless-stopped
+  #   depends_on: [backend]
+
+  # --- Activated in Phase 6 (deploy: reverse proxy + TLS) ---------------------
+  # nginx:
+  #   image: nginx:1.27-alpine
+  #   restart: unless-stopped
+  #   depends_on: [backend, frontend]
+  #   volumes:
+  #     - ./nginx/conf.d:/etc/nginx/conf.d:ro
+  #     - ./nginx/certs:/etc/letsencrypt:ro
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+
+  # certbot:
+  #   image: certbot/certbot
+  #   volumes:
+  #     - ./nginx/certs:/etc/letsencrypt
+
+volumes:
+  pgdata:
+  uploads:
