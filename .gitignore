@@ -24,6 +24,7 @@ data/uploads/
 data/tmp/
 *.dem
 out.json
+out*.json
 
 # Editor / OS
 .DS_Store
