@@ -176,10 +176,14 @@ def parse(path: str, include_positions: bool = True) -> dict:
         k: p.parse_event(k)
         for k in ("bomb_planted", "bomb_defused", "bomb_exploded")
     }
+    # verified: molotov/incendiary surface as inferno_startburn (the fire's
+    # origin); there is no molotov_detonate. decoy_detonate exists too.
     nade_ev = {
         "flash": p.parse_event("flashbang_detonate"),
         "he": p.parse_event("hegrenade_detonate"),
         "smoke": p.parse_event("smokegrenade_detonate"),
+        "molotov": p.parse_event("inferno_startburn"),
+        "decoy": p.parse_event("decoy_detonate"),
     }
 
     # A truncated/corrupt demo often parses the header fine, then returns EMPTY
@@ -431,6 +435,10 @@ def _round_bomb(bomb_ev, lo, hi) -> list[dict]:
 def _round_util(nade_ev, blind, lo, hi) -> list[dict]:
     out = []
     for kind, df in nade_ev.items():
+        # demoparser2 returns an empty list (not a DataFrame) for an event with
+        # zero rows; skip those cleanly.
+        if not hasattr(df, "columns") or len(df) == 0 or "tick" not in df.columns:
+            continue
         sub = df[(df["tick"] >= lo) & (df["tick"] <= hi)]
         for _, r in sub.iterrows():
             item = {
@@ -498,35 +506,53 @@ def _positions(p, windows, info) -> dict:
     log(f"[parse] sampling positions at {len(all_ticks)} frames "
         f"({TARGET_TPS}/s over {len(windows)} rounds)…")
 
+    # verified friendly props: active_weapon_name (e.g. "AK-47"), balance (money).
     df = p.parse_ticks(
-        ["X", "Y", "Z", "yaw", "health", "is_alive", "team_num"],
+        ["X", "Y", "Z", "yaw", "health", "is_alive", "team_num",
+         "active_weapon_name", "balance"],
         ticks=all_ticks,
     )
 
     slots = [str(s) for s in info["steamid"]]  # fixed column order
     slot_index = {s: i for i, s in enumerate(slots)}
 
-    # frames[round][tick] = flat list per slot of [x,y,z,yaw,hp,alive]
+    # Weapons are stored as an index into a per-file table so the blob stays
+    # compact (an int per slot per frame instead of a repeated string).
+    weapon_table: list[str] = []
+    weapon_id: dict[str, int] = {}
+
+    def wid(name) -> int:
+        if name is None or name != name:  # NaN / none held
+            return -1
+        s = str(name)
+        if s not in weapon_id:
+            weapon_id[s] = len(weapon_table)
+            weapon_table.append(s)
+        return weapon_id[s]
+
+    # frames[round][tick] = per slot: [x,y,z,yaw,hp,alive,weaponIdx,money]
     rounds_frames = {i: {} for i in per_round_ticks}
     for _, r in df.iterrows():
         t = int(r["tick"])
         rnd = tick_to_round.get(t)
         if rnd is None:
             continue
-        sid = str(r["steamid"])
-        si = slot_index.get(sid)
+        si = slot_index.get(str(r["steamid"]))
         if si is None:
             continue
         frame = rounds_frames[rnd].setdefault(t, [None] * len(slots))
+        money = r.get("balance")
         frame[si] = [
             int(r["X"]), int(r["Y"]), int(r["Z"]),
             int(r["yaw"]) % 360,
             int(r["health"]),
             1 if bool(r["is_alive"]) else 0,
+            wid(r.get("active_weapon_name")),
+            int(money) if money == money and money is not None else 0,
         ]
 
     out_rounds = []
-    zero = [0, 0, 0, 0, 0, 0]
+    zero = [0, 0, 0, 0, 0, 0, -1, 0]
     for i, ticks in per_round_ticks.items():
         frames = []
         for t in ticks:
@@ -541,8 +567,11 @@ def _positions(p, windows, info) -> dict:
     return {
         "tps": TARGET_TPS,
         "player_slots": slots,
-        # frame layout, per slot: [x, y, z, yaw_deg, health, alive(0/1)]
-        "frame_layout": ["x", "y", "z", "yaw", "health", "alive"],
+        "weapon_table": weapon_table,
+        # frame layout, per slot:
+        #   [x, y, z, yaw_deg, health, alive(0/1), weapon_index, money]
+        #   weapon_index is -1 (none) or an index into weapon_table.
+        "frame_layout": ["x", "y", "z", "yaw", "health", "alive", "weapon", "money"],
         "rounds": out_rounds,
     }
 
