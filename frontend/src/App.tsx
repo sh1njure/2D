@@ -1,29 +1,48 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { MapCalibration } from "./lib/coords";
 import { worldToRadar } from "./lib/coords";
-import type { Demo, PositionRound, SlotFrame } from "./lib/demo";
-import { frameIndexForTick, labelBySteamId } from "./lib/demo";
+import type { Demo, LogEntry, PositionRound, SlotFrame } from "./lib/demo";
+import { buildEventLog, interpolateFrame, labelBySteamId } from "./lib/demo";
 import { RadarCanvas, type KillMark, type RefMark, type UtilMark } from "./components/RadarCanvas";
-import { RoundRail } from "./components/RoundRail";
+import { LeftSidebar } from "./components/LeftSidebar";
+import { EventLog } from "./components/EventLog";
+import { Scoreboard } from "./components/Scoreboard";
 import { ScrubBar } from "./components/ScrubBar";
+import { AuthModal } from "./components/AuthModal";
 
-const CANVAS = 720;
-
-// Prefix a public asset path with the deploy base (import.meta.env.BASE_URL is
-// "/" locally, "/2D/" on GitHub Pages), so fetches work under a subpath.
+const CANVAS_MAX = 720;
 const asset = (p: string) => `${import.meta.env.BASE_URL}${p.replace(/^\//, "")}`;
+
+// Fit the square viewer to the available height so the scrub controls stay on
+// screen without scrolling. Clamped so it never gets tiny or oversized.
+function fitCanvas() {
+  if (typeof window === "undefined") return CANVAS_MAX;
+  return Math.max(420, Math.min(CANVAS_MAX, window.innerHeight - 250));
+}
 
 export default function App() {
   const [cal, setCal] = useState<MapCalibration | null>(null);
   const [radarImg, setRadarImg] = useState<HTMLImageElement | null>(null);
   const [demo, setDemo] = useState<Demo | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [roundNo, setRoundNo] = useState(1);
-  const [index, setIndex] = useState(0);
-  const [playing, setPlaying] = useState(false);
-  const [debug, setDebug] = useState(false);
 
-  // Load calibration + (optional) radar bitmap once we know the map.
+  const [roundNo, setRoundNo] = useState(1);
+  const [playhead, setPlayhead] = useState(0); // float tick
+  const [playing, setPlaying] = useState(false);
+  const [speed, setSpeed] = useState(1);
+
+  const [debug, setDebug] = useState(false);
+  const [scoreOpen, setScoreOpen] = useState(false);
+  const [auth, setAuth] = useState<null | "signin" | "register">(null);
+  const [size, setSize] = useState(fitCanvas);
+
+  useEffect(() => {
+    const on = () => setSize(fitCanvas());
+    window.addEventListener("resize", on);
+    return () => window.removeEventListener("resize", on);
+  }, []);
+
+  // calibration + optional radar bitmap
   useEffect(() => {
     const map = demo?.match.map ?? "de_inferno";
     fetch(asset(`maps/${map}.json`))
@@ -32,11 +51,11 @@ export default function App() {
       .catch(() => setError(`Missing map calibration for ${map}.`));
     const img = new Image();
     img.onload = () => setRadarImg(img);
-    img.onerror = () => setRadarImg(null); // fall back to calibrated grid
+    img.onerror = () => setRadarImg(null);
     img.src = asset(`maps/${map}.png`);
   }, [demo?.match.map]);
 
-  // Try to auto-load a bundled sample; otherwise the drop-zone waits.
+  // auto-load bundled sample
   useEffect(() => {
     fetch(asset("demo/sample.json"))
       .then((r) => (r.ok ? r.json() : Promise.reject()))
@@ -52,43 +71,51 @@ export default function App() {
     () => demo?.positions?.rounds.find((r) => r.round_number === roundNo) ?? null,
     [demo, roundNo],
   );
-  const frameTicks = useMemo(() => posRound?.frames.map((f) => f[0]) ?? [], [posRound]);
   const slots = demo?.positions?.player_slots ?? [];
   const labelBy = useMemo(() => (demo ? labelBySteamId(demo) : new Map()), [demo]);
+  const rangeLo = round?.freeze_end_tick ?? 0;
+  const rangeHi = round?.end_tick ?? 1;
 
-  // Reset to round start when the round changes.
+  const log: LogEntry[] = useMemo(
+    () => (round && demo ? buildEventLog(round, demo) : []),
+    [round, demo],
+  );
+
+  // reset clock on round change
   useEffect(() => {
-    setIndex(0);
+    setPlayhead(rangeLo);
     setPlaying(false);
-  }, [roundNo]);
+  }, [roundNo, rangeLo]);
 
-  // Playback loop at the demo's sampled tps.
-  const raf = useRef<number>(0);
-  const last = useRef<number>(0);
+  // continuous playback clock — advances a float tick by real elapsed time.
   useEffect(() => {
-    if (!playing || !demo?.positions) return;
-    const stepMs = 1000 / demo.positions.tps;
-    const tick = (t: number) => {
-      if (t - last.current >= stepMs) {
-        last.current = t;
-        setIndex((i) => {
-          if (i + 1 >= frameTicks.length) {
-            setPlaying(false);
-            return i;
-          }
-          return i + 1;
-        });
-      }
-      raf.current = requestAnimationFrame(tick);
+    if (!playing) return;
+    const rate = demo?.match.tickrate || 64;
+    let raf = 0;
+    let last = performance.now();
+    const loop = (now: number) => {
+      const dt = (now - last) / 1000;
+      last = now;
+      setPlayhead((p) => {
+        const next = p + dt * rate * speed;
+        if (next >= rangeHi) {
+          setPlaying(false);
+          return rangeHi;
+        }
+        return next;
+      });
+      raf = requestAnimationFrame(loop);
     };
-    raf.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf.current);
-  }, [playing, demo, frameTicks.length]);
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [playing, speed, demo, rangeHi]);
 
-  const curFrame: SlotFrame[] | null = posRound?.frames[index]?.[1] ?? null;
-  const curTick = frameTicks[index] ?? round?.freeze_end_tick ?? 0;
+  const curTick = Math.floor(playhead);
+  const curFrame: SlotFrame[] | null = useMemo(
+    () => (posRound ? interpolateFrame(posRound, playhead) : null),
+    [posRound, playhead],
+  );
 
-  // Kills up to the current tick, placed at the victim's position at kill time.
   const kills: KillMark[] = useMemo(() => {
     if (!round || !posRound) return [];
     const out: KillMark[] = [];
@@ -96,40 +123,37 @@ export default function App() {
       if (k.tick > curTick || !k.victim) continue;
       const slot = slots.indexOf(k.victim);
       if (slot < 0) continue;
-      const fi = frameIndexForTick(posRound, k.tick);
-      const sf = posRound.frames[fi]?.[1]?.[slot];
+      const f = interpolateFrame(posRound, k.tick);
+      const sf = f?.[slot];
       if (sf) out.push({ x: sf[0], y: sf[1], headshot: k.headshot });
     }
     return out;
   }, [round, posRound, slots, curTick]);
 
-  // Utility blooms: visible for ~2s after detonation, fading out.
   const utility: UtilMark[] = useMemo(() => {
     if (!round || !demo) return [];
     const rate = demo.match.tickrate || 64;
     const out: UtilMark[] = [];
     for (const u of round.utility) {
       if (u.x == null || u.y == null) continue;
-      const dt = (curTick - u.tick) / rate;
+      const dt = (playhead - u.tick) / rate;
       if (dt < 0 || dt > 2) continue;
       out.push({ x: u.x, y: u.y, kind: u.kind, alpha: 1 - dt / 2 });
     }
     return out;
-  }, [round, demo, curTick]);
+  }, [round, demo, playhead]);
 
-  // Bomb plant location (once planted this round), at the planter's position.
   const bomb = useMemo(() => {
     if (!round || !posRound) return null;
     const plant = round.bomb_events.find((b) => b.kind === "planted" && b.tick <= curTick);
     if (!plant || !plant.player) return null;
     const slot = slots.indexOf(plant.player);
     if (slot < 0) return null;
-    const fi = frameIndexForTick(posRound, plant.tick);
-    const sf = posRound.frames[fi]?.[1]?.[slot];
+    const f = interpolateFrame(posRound, plant.tick);
+    const sf = f?.[slot];
     return sf ? { x: sf[0], y: sf[1] } : null;
   }, [round, posRound, slots, curTick]);
 
-  // Debug overlay reference marks (see computeDebugRefs).
   const refs: RefMark[] = useMemo(
     () => (debug && cal && demo ? computeDebugRefs(cal, demo) : []),
     [debug, cal, demo],
@@ -139,116 +163,164 @@ export default function App() {
   if (!cal) return <Centered>Loading map calibration…</Centered>;
   if (!demo) return <DropZone onDemo={setDemo} onError={setError} />;
 
-  const teamA = demo.match.score.A;
-  const teamB = demo.match.score.B;
-
   return (
-    <div className="flex h-full flex-col bg-bg text-ink">
-      {/* header */}
-      <header className="flex items-center justify-between border-b border-grid px-5 py-3">
-        <div className="flex items-baseline gap-3">
-          <span className="display text-lg font-semibold">{demo.match.map}</span>
-          <span className="num text-sm text-muted">
-            <span className="text-t">A {teamA}</span> — <span className="text-ct">{teamB} B</span>
-          </span>
-          <span className="text-xs text-muted">
-            {demo.match.demo_type} · {demo.match.rounds_played} rounds
-          </span>
-        </div>
-        <button
-          onClick={() => setDebug((d) => !d)}
-          className={`rounded px-3 py-1 text-xs ${debug ? "bg-live text-bg" : "bg-raised text-muted hover:text-ink"}`}
-        >
-          debug overlay
-        </button>
-      </header>
+    <div className="flex h-full bg-bg text-ink">
+      <LeftSidebar rounds={demo.rounds} selected={roundNo} onSelect={setRoundNo} onAuth={setAuth} />
 
-      {demo.warnings.length > 0 && (
-        <div className="border-b border-grid bg-surface px-5 py-1.5 text-xs text-t">
-          ⚠ {demo.warnings[0]}
-        </div>
-      )}
-
-      <div className="flex min-h-0 flex-1">
-        {/* left rail */}
-        <aside className="w-44 shrink-0 border-r border-grid bg-surface">
-          <RoundRail rounds={demo.rounds} selected={roundNo} onSelect={setRoundNo} />
-        </aside>
-
-        {/* center: viewer */}
-        <main className="flex min-w-0 flex-1 flex-col items-center gap-4 overflow-auto p-6">
-          {round && (
-            <RoundHeader
-              roundNo={roundNo}
-              reason={round.end_reason}
-              winner={round.winner_side}
-              buy={round.buy}
-            />
-          )}
-          <div style={{ width: CANVAS }} className="relative">
-            <RadarCanvas
-              cal={cal}
-              radarImg={radarImg}
-              size={CANVAS}
-              slots={slots}
-              labelBy={labelBy}
-              frame={curFrame}
-              kills={debug ? [] : kills}
-              utility={debug ? [] : utility}
-              bomb={debug ? null : bomb}
-              refs={refs}
-            />
-            {debug && <DebugLegend />}
-            {!radarImg && !debug && (
-              <div className="num absolute bottom-2 right-2 rounded bg-surface/80 px-2 py-0.5 text-[10px] text-muted">
-                no radar bitmap — calibrated grid
-              </div>
-            )}
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* header */}
+        <header className="relative flex items-center gap-4 border-b border-grid px-5 py-3">
+          <div className="flex items-baseline gap-3">
+            <span className="display text-lg font-semibold capitalize">
+              {demo.match.map.replace("de_", "")}
+            </span>
+            <ScorePill a={demo.match.score.A} b={demo.match.score.B} />
+            <span className="text-xs text-muted">
+              {demo.match.demo_type} · {demo.match.rounds_played} rounds
+            </span>
           </div>
-          {round && posRound && (
-            <div style={{ width: CANVAS }}>
-              <ScrubBar
-                round={round}
-                frameTicks={frameTicks}
-                index={index}
-                playing={playing}
-                tickrate={demo.match.tickrate}
-                onScrub={(i) => {
-                  setIndex(i);
-                  setPlaying(false);
-                }}
-                onTogglePlay={() => setPlaying((p) => !p)}
-              />
+
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={() => setScoreOpen((s) => !s)}
+              className={`rounded-md px-3 py-1.5 text-xs transition-colors ${
+                scoreOpen ? "bg-raised text-ink" : "text-muted hover:bg-raised/60 hover:text-ink"
+              }`}
+            >
+              Scoreboard ▾
+            </button>
+            <button
+              onClick={() => setDebug((d) => !d)}
+              className={`rounded-md px-3 py-1.5 text-xs transition-colors ${
+                debug ? "bg-live text-bg" : "text-muted hover:bg-raised/60 hover:text-ink"
+              }`}
+            >
+              Debug overlay
+            </button>
+          </div>
+
+          {scoreOpen && (
+            <div className="absolute right-4 top-full z-40 mt-1" onMouseLeave={() => setScoreOpen(false)}>
+              <Scoreboard demo={demo} />
             </div>
           )}
-        </main>
+        </header>
 
-        {/* right: stats */}
-        <aside className="w-64 shrink-0 overflow-y-auto border-l border-grid bg-surface p-4">
-          <ScoreboardPanel demo={demo} />
-        </aside>
+        {demo.warnings.length > 0 && (
+          <div className="border-b border-grid bg-surface px-5 py-1.5 text-xs text-t">
+            ⚠ {demo.warnings[0]}
+          </div>
+        )}
+
+        {/* body: viewer + log */}
+        <div className="flex min-h-0 flex-1">
+          <main className="flex min-w-0 flex-1 flex-col items-center gap-4 overflow-auto p-6">
+            {round && <RoundHeader round={round} width={size} />}
+            <div style={{ width: size }} className="relative">
+              <div
+                className="rounded-xl p-px"
+                style={{ boxShadow: "0 0 0 1px var(--grid), 0 20px 60px -30px #000" }}
+              >
+                <RadarCanvas
+                  cal={cal}
+                  radarImg={radarImg}
+                  size={size}
+                  slots={slots}
+                  labelBy={labelBy}
+                  frame={curFrame}
+                  kills={debug ? [] : kills}
+                  utility={debug ? [] : utility}
+                  bomb={debug ? null : bomb}
+                  refs={refs}
+                />
+              </div>
+              {debug && <DebugLegend />}
+              {!radarImg && !debug && (
+                <div className="num absolute bottom-2 right-2 rounded bg-surface/80 px-2 py-0.5 text-[10px] text-muted">
+                  no radar bitmap — calibrated grid
+                </div>
+              )}
+            </div>
+            {round && posRound && (
+              <div style={{ width: size }}>
+                <ScrubBar
+                  round={round}
+                  rangeLo={rangeLo}
+                  rangeHi={rangeHi}
+                  playhead={playhead}
+                  playing={playing}
+                  speed={speed}
+                  tickrate={demo.match.tickrate}
+                  onSeek={(t) => {
+                    setPlayhead(t);
+                    setPlaying(false);
+                  }}
+                  onTogglePlay={() => setPlaying((p) => !p)}
+                  onSpeed={setSpeed}
+                />
+              </div>
+            )}
+          </main>
+
+          <aside className="w-72 shrink-0 border-l border-grid bg-surface">
+            {round && (
+              <EventLog
+                entries={log}
+                round={round}
+                tickrate={demo.match.tickrate}
+                curTick={curTick}
+                onSeek={(t) => {
+                  setPlayhead(t);
+                  setPlaying(false);
+                }}
+              />
+            )}
+          </aside>
+        </div>
       </div>
+
+      {auth && <AuthModal mode={auth} onClose={() => setAuth(null)} />}
     </div>
   );
 }
 
-/** Official reference points (ink) + demo-derived points (ember). Overlap
- * proves the world->radar transform is calibrated for this map. */
+function ScorePill({ a, b }: { a: number; b: number }) {
+  return (
+    <span className="num inline-flex items-center overflow-hidden rounded-md border border-grid text-sm">
+      <span className="bg-t/15 px-2 py-0.5 font-medium text-t">{a}</span>
+      <span className="px-1 text-muted">:</span>
+      <span className="bg-ct/15 px-2 py-0.5 font-medium text-ct">{b}</span>
+    </span>
+  );
+}
+
+function RoundHeader({ round, width }: { round: import("./lib/demo").Round; width: number }) {
+  return (
+    <div className="flex w-full items-center justify-between" style={{ maxWidth: width }}>
+      <span className="display text-sm">
+        Round <span className="num">{round.number}</span>
+      </span>
+      <span className="text-xs text-muted">
+        won by <span className={round.winner_side === "CT" ? "text-ct" : "text-t"}>{round.winner_side}</span>{" "}
+        · {round.end_reason.replace(/_/g, " ")}
+      </span>
+      <span className="num text-xs text-muted">
+        T {round.buy.T} / CT {round.buy.CT}
+      </span>
+    </div>
+  );
+}
+
 function computeDebugRefs(cal: MapCalibration, demo: Demo): RefMark[] {
   const out: RefMark[] = [];
   const size = cal.radar_size;
-  const rp = cal.reference_points;
   const ink = "#e6edf2";
   const ember = "#d8654a";
-
-  // Official anchors from the overview file (fractions of radar size).
-  for (const [key, val] of Object.entries(rp)) {
+  for (const [key, val] of Object.entries(cal.reference_points)) {
     if (!Array.isArray(val)) continue;
     const [fx, fy] = val as [number, number];
     out.push({ px: fx * size, py: fy * size, label: key, color: ink });
   }
-
-  // Demo-derived: team spawns from round 1's first frame, and bomb plants.
   const r1 = demo.positions?.rounds.find((r) => r.round_number === 1);
   const slots = demo.positions?.player_slots ?? [];
   const label = labelBySteamId(demo);
@@ -268,13 +340,10 @@ function computeDebugRefs(cal: MapCalibration, demo: Demo): RefMark[] {
     }
     (["A", "B"] as const).forEach((lab) => {
       if (acc[lab].n === 0) return;
-      const wx = acc[lab].x / acc[lab].n;
-      const wy = acc[lab].y / acc[lab].n;
-      const { px, py } = worldToRadar(cal, wx, wy);
+      const { px, py } = worldToRadar(cal, acc[lab].x / acc[lab].n, acc[lab].y / acc[lab].n);
       out.push({ px, py, label: `${lab} spawn`, color: ember });
     });
   }
-  // Bomb plants across all rounds (transformed).
   for (const r of demo.rounds) {
     for (const b of r.bomb_events) {
       if (b.kind !== "planted" || !b.player) continue;
@@ -282,8 +351,8 @@ function computeDebugRefs(cal: MapCalibration, demo: Demo): RefMark[] {
       if (!pr) continue;
       const slot = slots.indexOf(b.player);
       if (slot < 0) continue;
-      const fi = frameIndexForTick(pr, b.tick);
-      const sf = pr.frames[fi]?.[1]?.[slot];
+      const f = interpolateFrame(pr, b.tick);
+      const sf = f?.[slot];
       if (!sf) continue;
       const { px, py } = worldToRadar(cal, sf[0], sf[1]);
       out.push({ px, py, label: "", color: ember });
@@ -292,68 +361,9 @@ function computeDebugRefs(cal: MapCalibration, demo: Demo): RefMark[] {
   return out;
 }
 
-function RoundHeader({
-  roundNo,
-  reason,
-  winner,
-  buy,
-}: {
-  roundNo: number;
-  reason: string;
-  winner: string;
-  buy: { T: string; CT: string };
-}) {
-  return (
-    <div className="flex w-full items-center justify-between" style={{ maxWidth: CANVAS }}>
-      <span className="display text-sm">
-        Round <span className="num">{roundNo}</span>
-      </span>
-      <span className="text-xs text-muted">
-        won by <span className={winner === "CT" ? "text-ct" : "text-t"}>{winner}</span> · {reason}
-      </span>
-      <span className="num text-xs text-muted">
-        T {buy.T} / CT {buy.CT}
-      </span>
-    </div>
-  );
-}
-
-function ScoreboardPanel({ demo }: { demo: Demo }) {
-  return (
-    <div>
-      <div className="display mb-2 text-xs uppercase tracking-wider text-muted">Scoreboard</div>
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-xs text-muted">
-            <th className="text-left font-normal">player</th>
-            <th className="num text-right font-normal">K</th>
-            <th className="num text-right font-normal">D</th>
-            <th className="num text-right font-normal">A</th>
-            <th className="num text-right font-normal">ADR</th>
-          </tr>
-        </thead>
-        <tbody>
-          {demo.players.map((p) => (
-            <tr key={p.steamid} className="border-t border-grid/50">
-              <td className="truncate py-1">
-                <span className={p.team_label === "A" ? "text-t" : "text-ct"}>●</span>{" "}
-                <span className="text-ink">{p.name}</span>
-              </td>
-              <td className="num text-right">{p.kills}</td>
-              <td className="num text-right text-muted">{p.deaths}</td>
-              <td className="num text-right text-muted">{p.assists}</td>
-              <td className="num text-right">{p.adr}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 function DebugLegend() {
   return (
-    <div className="absolute left-2 top-2 rounded bg-surface/90 px-3 py-2 text-[11px] leading-relaxed">
+    <div className="absolute left-2 top-2 rounded-lg bg-surface/90 px-3 py-2 text-[11px] leading-relaxed backdrop-blur">
       <div className="display mb-1 text-muted">alignment check</div>
       <div>
         <span style={{ color: "#e6edf2" }}>◯</span> official (overview file)
@@ -367,9 +377,7 @@ function DebugLegend() {
 }
 
 function Centered({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex h-full items-center justify-center bg-bg text-muted">{children}</div>
-  );
+  return <div className="flex h-full items-center justify-center bg-bg text-muted">{children}</div>;
 }
 
 function DropZone({
@@ -410,8 +418,7 @@ function DropZone({
       >
         <span className="display text-lg">Load a demo</span>
         <span className="text-sm text-muted">
-          Drop <span className="num">out.json</span> here, or click to choose. Generate it with{" "}
-          <span className="num">python scripts/parse_demo.py your.dem &gt; out.json</span>
+          Drop <span className="num">out.json</span> here, or click to choose.
         </span>
         <input
           type="file"

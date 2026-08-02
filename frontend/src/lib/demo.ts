@@ -152,3 +152,100 @@ export function fmtClock(sec: number): string {
   const s = Math.floor(sec % 60);
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
+
+// --- smooth playback ----------------------------------------------------------
+// The blob is sampled at 8 tps; playing those frames raw looks robotic. We keep
+// a continuous playhead (a float tick) and interpolate positions between the two
+// frames bracketing it, so rendering can run at 60fps.
+
+/** Shortest-path angular interpolation in degrees. */
+function lerpAngle(a: number, b: number, f: number): number {
+  const d = ((b - a + 540) % 360) - 180;
+  return a + d * f;
+}
+
+/** Interpolated per-slot state at a fractional tick. hp/alive come from the
+ *  earlier frame so a player isn't lerped through their death. */
+export function interpolateFrame(pr: PositionRound, tick: number): SlotFrame[] | null {
+  const frames = pr.frames;
+  if (frames.length === 0) return null;
+  const iLo = frameIndexForTick(pr, tick);
+  // frameIndexForTick returns nearest; make sure we bracket forward.
+  let i = iLo;
+  if (frames[i][0] > tick && i > 0) i -= 1;
+  const j = Math.min(i + 1, frames.length - 1);
+  const t0 = frames[i][0];
+  const t1 = frames[j][0];
+  const frac = t1 > t0 ? Math.min(1, Math.max(0, (tick - t0) / (t1 - t0))) : 0;
+  const a = frames[i][1];
+  const b = frames[j][1];
+  return a.map((sa, s) => {
+    const sb = b[s];
+    if (!sa) return sb ?? [0, 0, 0, 0, 0, 0];
+    if (!sb) return sa;
+    const L = (u: number, v: number) => u + (v - u) * frac;
+    return [
+      L(sa[0], sb[0]),
+      L(sa[1], sb[1]),
+      L(sa[2], sb[2]),
+      lerpAngle(sa[3], sb[3], frac),
+      sa[4],
+      sa[5],
+    ] as SlotFrame;
+  });
+}
+
+// --- event log ----------------------------------------------------------------
+export type LogKind = "kill" | "flash" | "he" | "smoke" | "plant" | "defuse" | "explode";
+
+export interface LogEntry {
+  tick: number;
+  kind: LogKind;
+  actor: string; // display name or "?"
+  target?: string;
+  weapon?: string;
+  headshot?: boolean;
+  actorLabel?: "A" | "B";
+}
+
+const NADE_LABEL: Record<string, string> = { flash: "flash", he: "HE", smoke: "smoke" };
+
+/** Chronological feed of a round's events for the log panel. */
+export function buildEventLog(round: Round, demo: Demo): LogEntry[] {
+  const name = nameBySteamId(demo);
+  const label = labelBySteamId(demo);
+  const nm = (sid: string | null) => (sid ? (name.get(sid) ?? "?") : "?");
+  const out: LogEntry[] = [];
+
+  for (const k of round.kills) {
+    out.push({
+      tick: k.tick,
+      kind: "kill",
+      actor: nm(k.attacker),
+      target: nm(k.victim),
+      weapon: k.weapon ?? undefined,
+      headshot: k.headshot,
+      actorLabel: k.attacker ? label.get(k.attacker) : undefined,
+    });
+  }
+  for (const u of round.utility) {
+    if (u.kind !== "flash" && u.kind !== "he" && u.kind !== "smoke") continue;
+    out.push({
+      tick: u.tick,
+      kind: u.kind,
+      actor: nm(u.player),
+      weapon: NADE_LABEL[u.kind],
+      actorLabel: u.player ? label.get(u.player) : undefined,
+    });
+  }
+  for (const b of round.bomb_events) {
+    const kind = b.kind === "planted" ? "plant" : b.kind === "defused" ? "defuse" : "explode";
+    out.push({
+      tick: b.tick,
+      kind,
+      actor: nm(b.player),
+      actorLabel: b.player ? label.get(b.player) : undefined,
+    });
+  }
+  return out.sort((a, b) => a.tick - b.tick);
+}
