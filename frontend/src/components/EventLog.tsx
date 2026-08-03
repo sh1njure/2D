@@ -118,8 +118,8 @@ export function EventLog({ entries, round, tickrate, curTick, onSeek }: Props) {
                   <Body e={e} />
                 </span>
                 {iconName && (
-                  <span className="shrink-0 text-muted group-hover:text-ink" style={{ color: col }}>
-                    <WeaponIcon name={iconName} size={16} />
+                  <span className="flex w-11 shrink-0 justify-end opacity-80 group-hover:opacity-100">
+                    <WeaponIcon name={iconName} h={14} />
                   </span>
                 )}
               </span>

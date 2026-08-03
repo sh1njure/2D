@@ -55,8 +55,8 @@ function PlayerRow({ r }: { r: Row }) {
           </div>
         </div>
         <div className="flex items-center gap-2.5">
-          <span className="text-muted">
-            <WeaponIcon name={r.weapon} size={18} />
+          <span className="flex w-11 justify-end">
+            <WeaponIcon name={r.weapon} h={15} />
           </span>
           <span className="num w-16 text-right text-xs tabular-nums">
             <span className="text-ink">{r.st.kills}</span>
@@ -111,7 +111,7 @@ export function Scoreboard({ demo, frame, slots, live }: Props) {
       <div className="grid grid-cols-[1fr_auto] px-2 pb-0.5 text-[9px] uppercase text-muted">
         <span>player · hp</span>
         <span className="flex gap-2.5">
-          <span className="w-[18px]" />
+          <span className="w-11" />
           <span className="w-16 text-right">K / D / A</span>
           <span className="w-12 text-right">money</span>
         </span>
