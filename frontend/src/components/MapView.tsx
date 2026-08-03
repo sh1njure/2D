@@ -185,6 +185,21 @@ export function MapView({
       ctx.globalAlpha = 1;
     }
 
+    // Draw an official grenade icon centred at (cx,cy). `chip` adds a dark
+    // rounded backing (used nowhere decorative now — off by default at call sites).
+    const drawIcon = (file: string, cx: number, cy: number, h: number, chip = true) => {
+      const img = icons.current[file];
+      if (!img || !img.complete || !img.naturalWidth) return;
+      const w = h * (img.naturalWidth / img.naturalHeight);
+      if (chip) {
+        ctx.fillStyle = "rgba(14,20,25,0.65)";
+        ctx.beginPath();
+        ctx.roundRect(cx - w / 2 - 2, cy - h / 2 - 2, w + 4, h + 4, 3);
+        ctx.fill();
+      }
+      ctx.drawImage(img, cx - w / 2, cy - h / 2, w, h);
+    };
+
     // Countdown badge for timed utility (smoke/molotov). This small chip is a
     // deliberate readability affordance for the number — not a decorative shadow.
     const drawTimer = (cx: number, cy: number, remaining: number, bg: string, fg: string) => {
@@ -209,52 +224,76 @@ export function MapView({
       const { cx, cy } = proj(u.x, u.y);
       const t = Math.min(1, u.age / u.life);
       if (u.kind === "smoke") {
-        // expanding then steady cloud; soft edge.
-        const grow = Math.min(1, u.age / 0.6);
-        const r = wlen(150) * grow;
+        // CS2 smoke: pops and inflates to its full ~144u radius in ~1s (ease-out),
+        // sits as a dense, near-opaque disc, then dissipates over the last ~1.5s.
+        const p = Math.min(1, u.age / 1.0);
+        const grow = 1 - (1 - p) * (1 - p); // ease-out
+        const r = wlen(144) * (0.35 + 0.65 * grow);
         const fade = u.age > u.life - 1.5 ? Math.max(0, (u.life - u.age) / 1.5) : 1;
-        const grad = ctx.createRadialGradient(cx, cy, r * 0.3, cx, cy, r);
-        grad.addColorStop(0, `rgba(214,224,232,${0.55 * fade})`);
-        grad.addColorStop(0.85, `rgba(214,224,232,${0.22 * fade})`);
-        grad.addColorStop(1, "rgba(214,224,232,0)");
+        const grad = ctx.createRadialGradient(cx, cy, r * 0.2, cx, cy, r);
+        grad.addColorStop(0, `rgba(208,216,224,${0.85 * fade})`);
+        grad.addColorStop(0.72, `rgba(198,207,216,${0.74 * fade})`);
+        grad.addColorStop(0.93, `rgba(190,200,210,${0.4 * fade})`);
+        grad.addColorStop(1, "rgba(190,200,210,0)");
         ctx.fillStyle = grad;
         ctx.beginPath();
         ctx.arc(cx, cy, r, 0, Math.PI * 2);
         ctx.fill();
-        // zone ring so the smoke's covered area is unmistakable
-        ctx.strokeStyle = `rgba(226,233,240,${0.4 * fade})`;
+        // defined edge so the blocked area is unmistakable
+        ctx.strokeStyle = `rgba(228,235,242,${0.45 * fade})`;
         ctx.lineWidth = 1.25;
         ctx.stroke();
-        drawTimer(cx, cy, u.life - u.age, "rgba(20,26,32,0.9)", `rgba(226,233,240,${0.9 * fade})`);
+        drawIcon("smokegrenade", cx, cy - 9, 15, false);
+        drawTimer(cx, cy + 10, u.life - u.age, "rgba(20,26,32,0.9)", `rgba(228,235,242,${0.95 * fade})`);
       } else if (u.kind === "molotov") {
-        // Burning area rendered as a cluster of flickering flame cells (reads as
-        // fire, not a single ember blob). Each cell pulses on its own phase.
-        const fade = u.age < 0.3 ? u.age / 0.3 : 1 - t * 0.5;
-        const R = wlen(105);
-        const cells = 7;
+        // CS2 molotov/incendiary: fire spreads out from impact to fill an
+        // irregular pool over ~1.2s, flickers the whole time, then burns down
+        // over the last ~1.5s. Rendered as an irregular filled area (not a clean
+        // circle) with brighter flame cells on top.
+        const spread = Math.min(1, u.age / 1.2);
+        const fadeIn = Math.min(1, u.age / 0.25);
+        const decay = u.age > u.life - 1.5 ? Math.max(0, (u.life - u.age) / 1.5) : 1;
+        const alpha = fadeIn * (0.55 + 0.45 * decay);
+        const R = wlen(150) * spread * (0.72 + 0.28 * decay);
+        // irregular burning area
+        const N = 22;
+        ctx.beginPath();
+        for (let i = 0; i <= N; i++) {
+          const ang = (i / N) * Math.PI * 2;
+          const noise = 0.8 + 0.2 * Math.sin(ang * 3 + u.age * 4) * Math.cos(ang * 2 - u.age * 2.3);
+          const rr = R * noise;
+          const px = cx + Math.cos(ang) * rr;
+          const py = cy + Math.sin(ang) * rr;
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        const base = ctx.createRadialGradient(cx, cy, 2, cx, cy, R);
+        base.addColorStop(0, `rgba(236,124,46,${0.5 * alpha})`);
+        base.addColorStop(0.7, `rgba(198,68,34,${0.4 * alpha})`);
+        base.addColorStop(1, `rgba(150,35,25,${0.1 * alpha})`);
+        ctx.fillStyle = base;
+        ctx.fill();
+        // brighter flame cells riding on the pool
+        const cells = 6;
         for (let ci = 0; ci < cells; ci++) {
-          const ang = (ci / cells) * Math.PI * 2 + u.age * 0.6;
-          const dist = ci === 0 ? 0 : R * (0.35 + 0.4 * ((ci * 37) % 100) / 100);
+          const ang = (ci / cells) * Math.PI * 2 + u.age * 0.5;
+          const dist = R * (0.2 + 0.5 * ((ci * 37) % 100) / 100) * spread;
           const fx = cx + Math.cos(ang) * dist;
           const fy = cy + Math.sin(ang) * dist;
-          const flick = 0.6 + 0.4 * Math.sin(u.age * 16 + ci * 1.7);
-          const cr = wlen(38) * (0.7 + 0.3 * flick);
+          const flick = 0.6 + 0.4 * Math.sin(u.age * 15 + ci * 1.7);
+          const cr = wlen(34) * (0.65 + 0.35 * flick);
           const g = ctx.createRadialGradient(fx, fy, 1, fx, fy, cr);
-          g.addColorStop(0, `rgba(255,210,90,${0.7 * fade * flick})`);
-          g.addColorStop(0.45, `rgba(230,110,45,${0.5 * fade})`);
+          g.addColorStop(0, `rgba(255,214,96,${0.7 * alpha * flick})`);
+          g.addColorStop(0.5, `rgba(232,112,44,${0.45 * alpha})`);
           g.addColorStop(1, "rgba(150,35,25,0)");
           ctx.fillStyle = g;
           ctx.beginPath();
           ctx.arc(fx, fy, cr, 0, Math.PI * 2);
           ctx.fill();
         }
-        // faint ember boundary of the covered area
-        ctx.strokeStyle = `rgba(235,120,55,${0.3 * fade})`;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.arc(cx, cy, R, 0, Math.PI * 2);
-        ctx.stroke();
-        drawTimer(cx, cy, u.life - u.age, "rgba(30,12,6,0.9)", `rgba(255,205,120,${0.95 * fade})`);
+        drawIcon("molotov", cx, cy - 9, 15, false);
+        drawTimer(cx, cy + 10, u.life - u.age, "rgba(30,12,6,0.9)", `rgba(255,207,124,${0.95 * decay})`);
       } else if (u.kind === "flash") {
         // bright short impulse.
         const a = Math.max(0, 1 - u.age / u.life);
@@ -288,19 +327,6 @@ export function MapView({
     }
 
     // --- grenades in flight (real icons + trail) ----------------------------
-    const drawIcon = (file: string, cx: number, cy: number, h: number, chip = true) => {
-      const img = icons.current[file];
-      if (!img || !img.complete || !img.naturalWidth) return;
-      const w = h * (img.naturalWidth / img.naturalHeight);
-      if (chip) {
-        ctx.fillStyle = "rgba(14,20,25,0.65)";
-        ctx.beginPath();
-        ctx.roundRect(cx - w / 2 - 2, cy - h / 2 - 2, w + 4, h + 4, 3);
-        ctx.fill();
-      }
-      ctx.drawImage(img, cx - w / 2, cy - h / 2, w, h);
-    };
-
     for (const pr of projectiles) {
       const file = NADE_ICON[pr.kind];
       // trail

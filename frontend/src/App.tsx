@@ -28,9 +28,10 @@ import { AuthModal } from "./components/AuthModal";
 
 const asset = (p: string) => `${import.meta.env.BASE_URL}${p.replace(/^\//, "")}`;
 
-// Utility lifetimes (seconds) — how long each effect stays drawn.
+// Utility lifetimes (seconds) — how long each effect stays drawn. Tuned to CS2:
+// smoke ~18s, molotov/incendiary ~7s.
 const UTIL_LIFE: Record<string, number> = {
-  smoke: 15,
+  smoke: 18,
   molotov: 7,
   flash: 0.5,
   he: 0.4,
