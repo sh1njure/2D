@@ -42,7 +42,7 @@ export interface BombEvent {
 }
 
 export interface UtilityEvent {
-  kind: "flash" | "he" | "smoke";
+  kind: "flash" | "he" | "smoke" | "molotov" | "decoy";
   tick: number;
   player: string | null;
   x: number | null;
@@ -237,7 +237,16 @@ export function liveStats(demo: Demo, absTick: number): Map<string, LiveStat> {
 }
 
 // --- event log ----------------------------------------------------------------
-export type LogKind = "kill" | "flash" | "he" | "smoke" | "plant" | "defuse" | "explode";
+export type LogKind =
+  | "kill"
+  | "flash"
+  | "he"
+  | "smoke"
+  | "molotov"
+  | "decoy"
+  | "plant"
+  | "defuse"
+  | "explode";
 
 export interface LogEntry {
   tick: number;
@@ -249,7 +258,13 @@ export interface LogEntry {
   actorLabel?: "A" | "B";
 }
 
-const NADE_LABEL: Record<string, string> = { flash: "flash", he: "HE", smoke: "smoke" };
+const NADE_LABEL: Record<string, string> = {
+  flash: "flash",
+  he: "HE",
+  smoke: "smoke",
+  molotov: "molotov",
+  decoy: "decoy",
+};
 
 /** Chronological feed of a round's events for the log panel. */
 export function buildEventLog(round: Round, demo: Demo): LogEntry[] {
@@ -270,12 +285,11 @@ export function buildEventLog(round: Round, demo: Demo): LogEntry[] {
     });
   }
   for (const u of round.utility) {
-    if (u.kind !== "flash" && u.kind !== "he" && u.kind !== "smoke") continue;
     out.push({
       tick: u.tick,
       kind: u.kind,
       actor: nm(u.player),
-      weapon: NADE_LABEL[u.kind],
+      weapon: NADE_LABEL[u.kind] ?? u.kind,
       actorLabel: u.player ? label.get(u.player) : undefined,
     });
   }

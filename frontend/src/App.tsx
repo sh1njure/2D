@@ -12,6 +12,7 @@ import {
   roundClock,
 } from "./lib/demo";
 import { MapView, type KillMark, type RefMark, type UtilShape } from "./components/MapView";
+import { EventLog } from "./components/EventLog";
 import { Timeline } from "./components/Timeline";
 import { RoundStrip } from "./components/RoundStrip";
 import { Scoreboard } from "./components/Scoreboard";
@@ -207,7 +208,23 @@ export default function App() {
       )}
 
       <div className="flex min-h-0 flex-1">
-        {/* LEFT: map hero + timeline */}
+        {/* FAR LEFT: round log */}
+        <aside className="hidden w-60 shrink-0 border-r border-grid bg-surface lg:block">
+          {round && (
+            <EventLog
+              entries={log}
+              round={round}
+              tickrate={demo.match.tickrate}
+              curTick={curTick}
+              onSeek={(t) => {
+                setPlayhead(t);
+                setPlaying(false);
+              }}
+            />
+          )}
+        </aside>
+
+        {/* CENTER: map hero + timeline */}
         <div ref={leftRef} className="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 p-4">
           <div className="relative" style={{ width: mapSize }}>
             <div style={{ boxShadow: "0 0 0 1px var(--grid), 0 24px 70px -35px #000", borderRadius: 12 }}>
