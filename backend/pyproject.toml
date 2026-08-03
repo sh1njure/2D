@@ -11,6 +11,9 @@ dependencies = [
     "demoparser2==0.41.4",
     "awpy==2.0.2",
     "pandas>=2.0",
+    # Phase 4: match analysis. Pinned major; the Messages API surface we use
+    # (messages.create, system cache_control, usage token fields) is stable.
+    "anthropic>=0.40",
 ]
 
 [project.optional-dependencies]

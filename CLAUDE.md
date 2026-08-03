@@ -431,6 +431,37 @@ python scripts/parse_demo.py <path.dem> > out.json
         viewer to GitHub Pages. One-time manual step: repo Settings → Pages →
         Source "GitHub Actions" (the workflow token cannot enable Pages itself).
 - [ ] Phase 3 — Backend (upload, queue, worker, persistence, accounts)
-- [ ] Phase 4 — AI analysis layer
+- [~] **Phase 4** — AI analysis layer. **Standalone prototype built ahead of the
+      backend** (client wanted to hand the analysis to real users before Phase 3).
+      **← awaiting your review.** Notes:
+      - `scripts/analyze_demo.py out.json --team A|B [--dry-run]` — same standalone
+        shape as `parse_demo.py`: no web, no DB, no queue. Reads only the derived
+        `out.json` (never the .dem).
+      - **Team-selectable** (`--team A|B`): players analyse their own team. All
+        rates are computed from that team's point of view. Verified A and B
+        perspectives mirror (B's T rounds = A's CT rounds, opening-duel wins sum to
+        rounds, etc.).
+      - **Feature layer** (`app/features/match_features.py`): aggregates the parsed
+        events into a compact team-scoped JSON (~1.4k tokens for the sample; the
+        brief's 4-6k ceiling is enforced by a test). Emits side split, buy-type
+        outcomes, opening-duel rate, trade kills, multikills, per-player stats,
+        utility usage, and a compact per-round list. **Side-per-round is derived
+        from data** (score delta + `winner_side`), not from assumed MR12/overtime
+        switch rules — robust to any format. `FEATURE_VERSION` guards the schema.
+      - **Versioned prompt file** `app/analysis/prompts/coach_v1.md` (a file, per
+        the brief — not a string in code). `PROMPT_VERSION` recorded on every call.
+      - **Anthropic client** (`app/analysis/client.py`): key + model from env
+        (`ANTHROPIC_API_KEY`, `ANALYSIS_MODEL_ID`, default
+        `claude-haiku-4-5-20251001`); prompt caching on the system block; output
+        hard-capped by `ANALYSIS_MAX_OUTPUT_TOKENS`; returns a `Usage` record
+        (in/out/cached tokens + `cost_usd` from the env price config) ready for the
+        `llm_usage` ledger; handles `stop_reason == "refusal"`. Import-safe with no
+        key and no `anthropic` installed, so `--dry-run` always works.
+      - **`--dry-run`** (the default when no key is present) prints the exact system
+        prompt + features JSON the model would receive and makes **no** API call —
+        so the model input is auditable before spending anything. A real call is
+        only made when `ANTHROPIC_API_KEY` is set (loaded from a gitignored `.env`).
+      - Tests in `tests/test_match_features.py` (feature correctness + real-demo
+        invariants). No live API call is made in tests.
 - [ ] Phase 5 — Payments & access control
 - [ ] Phase 6 — Deploy (nginx, TLS, backups, runbook)
