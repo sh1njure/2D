@@ -209,7 +209,7 @@ export default function App() {
 
       <div className="flex min-h-0 flex-1">
         {/* FAR LEFT: round log */}
-        <aside className="hidden w-60 shrink-0 border-r border-grid bg-surface lg:block">
+        <aside className="hidden w-80 shrink-0 border-r border-grid bg-surface lg:block">
           {round && (
             <EventLog
               entries={log}
