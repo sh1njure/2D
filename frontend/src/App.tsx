@@ -17,6 +17,7 @@ import {
   type KillMark,
   type Projectile,
   type RefMark,
+  type Tracer,
   type UtilShape,
 } from "./components/MapView";
 import { EventLog } from "./components/EventLog";
@@ -166,6 +167,22 @@ export default function App() {
     return out;
   }, [posRound, playhead]);
 
+  // Tracers: gun-fire events within a short window before the playhead, drawn
+  // from the shooter's current position along their aim yaw.
+  const tracers: Tracer[] = useMemo(() => {
+    if (!posRound?.shots || !curFrame || !demo) return [];
+    const rate = demo.match.tickrate || 64;
+    const winTicks = rate * 0.12;
+    const out: Tracer[] = [];
+    for (const [tick, slot] of posRound.shots) {
+      if (tick > playhead || playhead - tick > winTicks) continue;
+      const sf = curFrame[slot];
+      if (!sf || !sf[5]) continue; // shooter must be alive
+      out.push({ x: sf[0], y: sf[1], yaw: sf[3], age: (playhead - tick) / rate });
+    }
+    return out;
+  }, [posRound, curFrame, playhead, demo]);
+
   const bomb = useMemo(() => {
     if (!round || !posRound) return null;
     const plant = round.bomb_events.find((b) => b.kind === "planted" && b.tick <= curTick);
@@ -255,6 +272,7 @@ export default function App() {
                 frame={curFrame}
                 utils={debug ? [] : utils}
                 projectiles={debug ? [] : projectiles}
+                tracers={debug ? [] : tracers}
                 kills={debug ? [] : kills}
                 bomb={debug ? null : bomb}
                 refs={refs}

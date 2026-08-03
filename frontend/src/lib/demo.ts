@@ -83,6 +83,7 @@ export interface PositionRound {
   frame_count: number;
   frames: Frame[];
   grenades?: GrenadeFlight[];
+  shots?: [number, number][]; // [tick, slotIndex] gun-fire events, for tracers
 }
 
 /** Interpolated (x,y) of a grenade in flight at `tick`, plus the trail travelled

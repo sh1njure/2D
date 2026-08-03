@@ -22,6 +22,13 @@ export interface KillMark {
   y: number;
   headshot: boolean;
 }
+// A bullet tracer: shooter world position + aim yaw, fading with age.
+export interface Tracer {
+  x: number;
+  y: number;
+  yaw: number;
+  age: number; // seconds since the shot
+}
 export interface RefMark {
   px: number;
   py: number;
@@ -39,6 +46,7 @@ interface Props {
   frame: SlotFrame[] | null;
   utils?: UtilShape[];
   projectiles?: Projectile[];
+  tracers?: Tracer[];
   kills?: KillMark[];
   bomb?: { x: number; y: number } | null;
   refs?: RefMark[];
@@ -77,6 +85,7 @@ export function MapView({
   frame,
   utils = [],
   projectiles = [],
+  tracers = [],
   kills = [],
   bomb = null,
   refs = [],
@@ -176,6 +185,25 @@ export function MapView({
       ctx.globalAlpha = 1;
     }
 
+    // Countdown badge for timed utility (smoke/molotov). This small chip is a
+    // deliberate readability affordance for the number — not a decorative shadow.
+    const drawTimer = (cx: number, cy: number, remaining: number, bg: string, fg: string) => {
+      if (remaining <= 0.05) return;
+      const label = Math.ceil(remaining).toString();
+      ctx.font = "600 11px 'IBM Plex Mono', monospace";
+      const w = ctx.measureText(label).width;
+      ctx.fillStyle = bg;
+      ctx.beginPath();
+      ctx.roundRect(cx - w / 2 - 4, cy - 8, w + 8, 16, 4);
+      ctx.fill();
+      ctx.fillStyle = fg;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(label, cx, cy + 0.5);
+      ctx.textAlign = "start";
+      ctx.textBaseline = "alphabetic";
+    };
+
     // --- utility (shape per type) -------------------------------------------
     for (const u of utils) {
       const { cx, cy } = proj(u.x, u.y);
@@ -197,19 +225,36 @@ export function MapView({
         ctx.strokeStyle = `rgba(226,233,240,${0.4 * fade})`;
         ctx.lineWidth = 1.25;
         ctx.stroke();
+        drawTimer(cx, cy, u.life - u.age, "rgba(20,26,32,0.9)", `rgba(226,233,240,${0.9 * fade})`);
       } else if (u.kind === "molotov") {
-        // burning area: flickering ember fill.
-        const r = wlen(115);
-        const fade = 1 - t;
-        const flick = 0.75 + 0.25 * Math.sin(u.age * 22);
-        const grad = ctx.createRadialGradient(cx, cy, 2, cx, cy, r);
-        grad.addColorStop(0, `rgba(224,110,60,${0.55 * fade * flick})`);
-        grad.addColorStop(0.7, `rgba(200,70,40,${0.35 * fade})`);
-        grad.addColorStop(1, "rgba(160,40,30,0)");
-        ctx.fillStyle = grad;
+        // Burning area rendered as a cluster of flickering flame cells (reads as
+        // fire, not a single ember blob). Each cell pulses on its own phase.
+        const fade = u.age < 0.3 ? u.age / 0.3 : 1 - t * 0.5;
+        const R = wlen(105);
+        const cells = 7;
+        for (let ci = 0; ci < cells; ci++) {
+          const ang = (ci / cells) * Math.PI * 2 + u.age * 0.6;
+          const dist = ci === 0 ? 0 : R * (0.35 + 0.4 * ((ci * 37) % 100) / 100);
+          const fx = cx + Math.cos(ang) * dist;
+          const fy = cy + Math.sin(ang) * dist;
+          const flick = 0.6 + 0.4 * Math.sin(u.age * 16 + ci * 1.7);
+          const cr = wlen(38) * (0.7 + 0.3 * flick);
+          const g = ctx.createRadialGradient(fx, fy, 1, fx, fy, cr);
+          g.addColorStop(0, `rgba(255,210,90,${0.7 * fade * flick})`);
+          g.addColorStop(0.45, `rgba(230,110,45,${0.5 * fade})`);
+          g.addColorStop(1, "rgba(150,35,25,0)");
+          ctx.fillStyle = g;
+          ctx.beginPath();
+          ctx.arc(fx, fy, cr, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        // faint ember boundary of the covered area
+        ctx.strokeStyle = `rgba(235,120,55,${0.3 * fade})`;
+        ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.arc(cx, cy, r, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.arc(cx, cy, R, 0, Math.PI * 2);
+        ctx.stroke();
+        drawTimer(cx, cy, u.life - u.age, "rgba(30,12,6,0.9)", `rgba(255,205,120,${0.95 * fade})`);
       } else if (u.kind === "flash") {
         // bright short impulse.
         const a = Math.max(0, 1 - u.age / u.life);
@@ -275,7 +320,27 @@ export function MapView({
         ctx.globalAlpha = 1;
       }
       const { cx, cy } = proj(pr.x, pr.y);
-      drawIcon(file, cx, cy, 15);
+      drawIcon(file, cx, cy, 15, false);
+    }
+
+    // --- bullet tracers (short line from shooter along aim, fading) ----------
+    for (const tr of tracers) {
+      const { cx, cy } = proj(tr.x, tr.y);
+      const a = yawToCanvasAngle(tr.yaw);
+      const len = wlen(1300);
+      const alpha = Math.max(0, 1 - tr.age / 0.12);
+      if (alpha <= 0) continue;
+      const ex = cx + Math.cos(a) * len;
+      const ey = cy + Math.sin(a) * len;
+      const grad = ctx.createLinearGradient(cx, cy, ex, ey);
+      grad.addColorStop(0, `rgba(255,238,170,${0.85 * alpha})`);
+      grad.addColorStop(1, "rgba(255,238,170,0)");
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = 1.1;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(ex, ey);
+      ctx.stroke();
     }
 
     // --- bomb ---------------------------------------------------------------
@@ -372,22 +437,14 @@ export function MapView({
       }
     }
 
-    // labels with de-overlap: draw for living players, nudge collisions down.
+    // labels: plain text, no backing plate/shadow, overlap allowed.
     ctx.font = "500 10px 'Inter', sans-serif";
-    const placed: { x: number; y: number }[] = [];
-    for (const p of ps.filter((q) => q.alive).sort((u, v) => u.cy - v.cy)) {
-      let ly = p.cy - 9;
-      for (const q of placed) {
-        if (Math.abs(q.x - p.cx) < 44 && Math.abs(q.y - ly) < 11) ly = q.y + 11;
-      }
-      placed.push({ x: p.cx, y: ly });
-      const w = ctx.measureText(p.name).width;
-      const lx = p.cx - w / 2;
-      ctx.fillStyle = "rgba(14,20,25,0.72)";
-      ctx.fillRect(lx - 3, ly - 9, w + 6, 12);
-      ctx.fillStyle = c.ink;
-      ctx.fillText(p.name, lx, ly);
+    ctx.textAlign = "center";
+    for (const p of ps.filter((q) => q.alive)) {
+      ctx.fillStyle = p.col;
+      ctx.fillText(p.name, p.cx, p.cy - 9);
     }
+    ctx.textAlign = "start";
 
     // --- debug refs ---------------------------------------------------------
     for (const rp of refs) {
@@ -411,7 +468,7 @@ export function MapView({
     }
 
     ctx.restore();
-  }, [cal, radarImg, size, slots, labelBy, nameBy, frame, utils, projectiles, kills, bomb, refs, zoom, pan, iconsReady]);
+  }, [cal, radarImg, size, slots, labelBy, nameBy, frame, utils, projectiles, tracers, kills, bomb, refs, zoom, pan, iconsReady]);
 
   return (
     <canvas

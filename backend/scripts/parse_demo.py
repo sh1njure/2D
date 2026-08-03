@@ -374,6 +374,13 @@ def parse(path: str, include_positions: bool = True) -> dict:
             rd["grenades"] = gren.get(rd["round_number"], [])
             n += len(rd["grenades"])
         log(f"[parse] {n} grenade flights")
+        log("[parse] extracting weapon fire (tracers)…")
+        shots = _shots(p, rounds_windows, players_info)
+        s = 0
+        for rd in result["positions"]["rounds"]:
+            rd["shots"] = shots.get(rd["round_number"], [])
+            s += len(rd["shots"])
+        log(f"[parse] {s} gun-fire events")
     else:
         result["positions"] = None
         log("[parse] positions skipped (--no-positions)")
@@ -558,6 +565,55 @@ def _grenades(p, windows) -> dict:
                 keep.append(m - 1)
             path = [[ticks[seg[k]], xs[seg[k]], ys[seg[k]]] for k in keep]
             out[rnd].append({"kind": kind, "thrower": _sid(sids[seg[0]]), "path": path})
+    return out
+
+
+# weapon_fire fires for grenades and knives too; those leave no tracer. Only
+# guns get a tracer line in the viewer, so we drop the rest.
+_NON_TRACER_WEAPONS = {
+    "weapon_hegrenade", "weapon_flashbang", "weapon_smokegrenade", "weapon_molotov",
+    "weapon_incgrenade", "weapon_decoy", "weapon_tagrenade", "weapon_snowball",
+    "weapon_firebomb", "weapon_diversion", "weapon_frag_grenade",
+}
+
+
+def _shots(p, windows, info) -> dict:
+    """Per-round gun-fire events for the viewer's tracers: [tick, slot_index].
+    Slot index matches the position blob's player_slots order so the frontend can
+    pull the shooter's position + yaw at that tick and draw the tracer along the
+    aim. Knife and grenade 'fires' are excluded (no tracer)."""
+    out: dict[int, list] = {i: [] for i in range(1, len(windows) + 1)}
+    try:
+        wf = p.parse_event("weapon_fire")
+    except Exception as exc:
+        log(f"[parse] weapon_fire unavailable: {exc}")
+        return out
+    if not hasattr(wf, "columns") or len(wf) == 0:
+        return out
+
+    slots = [str(s) for s in info["steamid"]]
+    slot_index = {s: i for i, s in enumerate(slots)}
+
+    def round_of(t: int):
+        for i, w in enumerate(windows, start=1):
+            if w["freeze_end"] <= t <= w["end"]:
+                return i
+        return None
+
+    for _, r in wf.iterrows():
+        weapon = str(r.get("weapon") or "")
+        if "knife" in weapon or weapon in _NON_TRACER_WEAPONS:
+            continue
+        si = slot_index.get(str(r.get("user_steamid")))
+        if si is None:
+            continue
+        t = int(r["tick"])
+        rnd = round_of(t)
+        if rnd is None:
+            continue
+        out[rnd].append([t, si])
+    for i in out:
+        out[i].sort()
     return out
 
 
