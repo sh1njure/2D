@@ -72,10 +72,38 @@ export type SlotFrame = [number, number, number, number, number, number, number,
 // A frame: [tick, [SlotFrame per slot]].
 export type Frame = [number, SlotFrame[]];
 
+export interface GrenadeFlight {
+  kind: "he" | "flash" | "smoke" | "molotov" | "decoy";
+  thrower: string | null;
+  path: [number, number, number][]; // [tick, x, y]
+}
+
 export interface PositionRound {
   round_number: number;
   frame_count: number;
   frames: Frame[];
+  grenades?: GrenadeFlight[];
+}
+
+/** Interpolated (x,y) of a grenade in flight at `tick`, plus the trail travelled
+ *  so far — or null if the grenade isn't in the air at that tick. */
+export function projectileAt(
+  fl: GrenadeFlight,
+  tick: number,
+): { x: number; y: number; trail: [number, number][] } | null {
+  const path = fl.path;
+  if (path.length < 2) return null;
+  if (tick < path[0][0] || tick > path[path.length - 1][0]) return null;
+  let i = 0;
+  while (i < path.length - 1 && path[i + 1][0] <= tick) i++;
+  const a = path[i];
+  const b = path[Math.min(i + 1, path.length - 1)];
+  const f = b[0] > a[0] ? (tick - a[0]) / (b[0] - a[0]) : 0;
+  const x = a[1] + (b[1] - a[1]) * f;
+  const y = a[2] + (b[2] - a[2]) * f;
+  const trail: [number, number][] = path.slice(0, i + 1).map((p) => [p[1], p[2]]);
+  trail.push([x, y]);
+  return { x, y, trail };
 }
 
 export interface Positions {

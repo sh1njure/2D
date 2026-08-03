@@ -9,9 +9,16 @@ import {
   labelBySteamId,
   liveStats,
   nameBySteamId,
+  projectileAt,
   roundClock,
 } from "./lib/demo";
-import { MapView, type KillMark, type RefMark, type UtilShape } from "./components/MapView";
+import {
+  MapView,
+  type KillMark,
+  type Projectile,
+  type RefMark,
+  type UtilShape,
+} from "./components/MapView";
 import { EventLog } from "./components/EventLog";
 import { Timeline } from "./components/Timeline";
 import { RoundStrip } from "./components/RoundStrip";
@@ -149,6 +156,16 @@ export default function App() {
     return out;
   }, [round, demo, playhead]);
 
+  const projectiles: Projectile[] = useMemo(() => {
+    if (!posRound?.grenades) return [];
+    const out: Projectile[] = [];
+    for (const fl of posRound.grenades) {
+      const pos = projectileAt(fl, playhead);
+      if (pos) out.push({ kind: fl.kind, x: pos.x, y: pos.y, trail: pos.trail });
+    }
+    return out;
+  }, [posRound, playhead]);
+
   const bomb = useMemo(() => {
     if (!round || !posRound) return null;
     const plant = round.bomb_events.find((b) => b.kind === "planted" && b.tick <= curTick);
@@ -237,6 +254,7 @@ export default function App() {
                 nameBy={nameBy}
                 frame={curFrame}
                 utils={debug ? [] : utils}
+                projectiles={debug ? [] : projectiles}
                 kills={debug ? [] : kills}
                 bomb={debug ? null : bomb}
                 refs={refs}

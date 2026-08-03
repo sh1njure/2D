@@ -11,6 +11,12 @@ export interface UtilShape {
   age: number; // seconds since detonation
   life: number; // total lifetime seconds
 }
+export interface Projectile {
+  kind: "he" | "flash" | "smoke" | "molotov" | "decoy";
+  x: number;
+  y: number;
+  trail: [number, number][]; // world coords travelled so far
+}
 export interface KillMark {
   x: number;
   y: number;
@@ -32,10 +38,20 @@ interface Props {
   nameBy: Map<string, string>;
   frame: SlotFrame[] | null;
   utils?: UtilShape[];
+  projectiles?: Projectile[];
   kills?: KillMark[];
   bomb?: { x: number; y: number } | null;
   refs?: RefMark[];
 }
+
+// grenade kind -> official icon filename (bundled in public/icons/weapons)
+const NADE_ICON: Record<string, string> = {
+  he: "hegrenade",
+  flash: "flashbang",
+  smoke: "smokegrenade",
+  molotov: "molotov",
+  decoy: "decoy",
+};
 
 function tokens() {
   const s = getComputedStyle(document.documentElement);
@@ -60,6 +76,7 @@ export function MapView({
   nameBy,
   frame,
   utils = [],
+  projectiles = [],
   kills = [],
   bomb = null,
   refs = [],
@@ -68,6 +85,24 @@ export function MapView({
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const drag = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
+
+  // preload the grenade icons once so they can be drawn on the canvas.
+  const icons = useRef<Record<string, HTMLImageElement>>({});
+  const [iconsReady, setIconsReady] = useState(false);
+  useEffect(() => {
+    const base = import.meta.env.BASE_URL;
+    const files = Array.from(new Set(Object.values(NADE_ICON)));
+    let n = 0;
+    files.forEach((f) => {
+      const img = new Image();
+      img.onload = () => {
+        n++;
+        if (n === files.length) setIconsReady(true);
+      };
+      img.src = `${base}icons/weapons/${f}.svg`;
+      icons.current[f] = img;
+    });
+  }, []);
 
   // reset view when the map/size changes
   useEffect(() => {
@@ -151,12 +186,17 @@ export function MapView({
         const r = wlen(150) * grow;
         const fade = u.age > u.life - 1.5 ? Math.max(0, (u.life - u.age) / 1.5) : 1;
         const grad = ctx.createRadialGradient(cx, cy, r * 0.3, cx, cy, r);
-        grad.addColorStop(0, `rgba(210,220,228,${0.5 * fade})`);
-        grad.addColorStop(1, "rgba(210,220,228,0)");
+        grad.addColorStop(0, `rgba(214,224,232,${0.55 * fade})`);
+        grad.addColorStop(0.85, `rgba(214,224,232,${0.22 * fade})`);
+        grad.addColorStop(1, "rgba(214,224,232,0)");
         ctx.fillStyle = grad;
         ctx.beginPath();
         ctx.arc(cx, cy, r, 0, Math.PI * 2);
         ctx.fill();
+        // zone ring so the smoke's covered area is unmistakable
+        ctx.strokeStyle = `rgba(226,233,240,${0.4 * fade})`;
+        ctx.lineWidth = 1.25;
+        ctx.stroke();
       } else if (u.kind === "molotov") {
         // burning area: flickering ember fill.
         const r = wlen(115);
@@ -200,6 +240,42 @@ export function MapView({
         ctx.setLineDash([]);
         ctx.globalAlpha = 1;
       }
+    }
+
+    // --- grenades in flight (real icons + trail) ----------------------------
+    const drawIcon = (file: string, cx: number, cy: number, h: number, chip = true) => {
+      const img = icons.current[file];
+      if (!img || !img.complete || !img.naturalWidth) return;
+      const w = h * (img.naturalWidth / img.naturalHeight);
+      if (chip) {
+        ctx.fillStyle = "rgba(14,20,25,0.65)";
+        ctx.beginPath();
+        ctx.roundRect(cx - w / 2 - 2, cy - h / 2 - 2, w + 4, h + 4, 3);
+        ctx.fill();
+      }
+      ctx.drawImage(img, cx - w / 2, cy - h / 2, w, h);
+    };
+
+    for (const pr of projectiles) {
+      const file = NADE_ICON[pr.kind];
+      // trail
+      if (pr.trail.length > 1) {
+        ctx.strokeStyle = pr.kind === "he" || pr.kind === "molotov" ? c.live : c.muted;
+        ctx.globalAlpha = 0.5;
+        ctx.setLineDash([4, 3]);
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        pr.trail.forEach(([wx, wy], idx) => {
+          const { cx, cy } = proj(wx, wy);
+          if (idx === 0) ctx.moveTo(cx, cy);
+          else ctx.lineTo(cx, cy);
+        });
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+      }
+      const { cx, cy } = proj(pr.x, pr.y);
+      drawIcon(file, cx, cy, 15);
     }
 
     // --- bomb ---------------------------------------------------------------
@@ -335,7 +411,7 @@ export function MapView({
     }
 
     ctx.restore();
-  }, [cal, radarImg, size, slots, labelBy, nameBy, frame, utils, kills, bomb, refs, zoom, pan]);
+  }, [cal, radarImg, size, slots, labelBy, nameBy, frame, utils, projectiles, kills, bomb, refs, zoom, pan, iconsReady]);
 
   return (
     <canvas

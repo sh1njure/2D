@@ -367,6 +367,13 @@ def parse(path: str, include_positions: bool = True) -> dict:
 
     if include_positions:
         result["positions"] = _positions(p, rounds_windows, players_info)
+        log("[parse] extracting grenade trajectories…")
+        gren = _grenades(p, rounds_windows)
+        n = 0
+        for rd in result["positions"]["rounds"]:
+            rd["grenades"] = gren.get(rd["round_number"], [])
+            n += len(rd["grenades"])
+        log(f"[parse] {n} grenade flights")
     else:
         result["positions"] = None
         log("[parse] positions skipped (--no-positions)")
@@ -487,6 +494,71 @@ def _player_stats(info, deaths, hurt, team_label, start_side, lo, hi, n_rounds) 
             }
         )
     return sorted(out, key=lambda x: (-x["kills"], x["deaths"]))
+
+
+def _grenades(p, windows) -> dict:
+    """Per-round grenade flight paths (downsampled) so the viewer can draw the
+    grenade flying along its real trajectory. Uses parse_grenades' *Projectile
+    rows (the in-air entities); the resting/inventory rows are ignored."""
+    KIND = {
+        "CHEGrenadeProjectile": "he",
+        "CFlashbangProjectile": "flash",
+        "CSmokeGrenadeProjectile": "smoke",
+        "CMolotovProjectile": "molotov",
+        "CDecoyProjectile": "decoy",
+    }
+    out: dict[int, list] = {i: [] for i in range(1, len(windows) + 1)}
+    try:
+        g = p.parse_grenades()
+    except Exception as exc:
+        log(f"[parse] grenade trajectories unavailable: {exc}")
+        return out
+    if not hasattr(g, "columns") or len(g) == 0:
+        return out
+    g = g[g["grenade_type"].astype(str).isin(KIND)].dropna(subset=["x", "y"])
+
+    def round_of(t: int):
+        for i, w in enumerate(windows, start=1):
+            if w["freeze_end"] <= t <= w["end"]:
+                return i
+        return None
+
+    for _, sub in g.groupby("grenade_entity_id"):
+        sub = sub.sort_values("tick")
+        kind = KIND.get(str(sub["grenade_type"].iloc[0]))
+        if not kind:
+            continue
+        ticks = [int(t) for t in sub["tick"]]
+        xs = [int(v) for v in sub["x"]]
+        ys = [int(v) for v in sub["y"]]
+        sids = [str(s) for s in sub["steamid"]]
+
+        # Entity ids are recycled between throws; split into contiguous flights
+        # wherever consecutive ticks jump by more than a second.
+        segs: list[list[int]] = []
+        cur: list[int] = []
+        for k in range(len(ticks)):
+            if cur and ticks[k] - ticks[cur[-1]] > 64:
+                segs.append(cur)
+                cur = []
+            cur.append(k)
+        if cur:
+            segs.append(cur)
+
+        for seg in segs:
+            if len(seg) < 2:
+                continue
+            rnd = round_of(ticks[seg[0]])
+            if rnd is None:
+                continue
+            m = len(seg)
+            stride = max(1, m // 14)
+            keep = list(range(0, m, stride))
+            if keep[-1] != m - 1:
+                keep.append(m - 1)
+            path = [[ticks[seg[k]], xs[seg[k]], ys[seg[k]]] for k in keep]
+            out[rnd].append({"kind": kind, "thrower": _sid(sids[seg[0]]), "path": path})
+    return out
 
 
 def _positions(p, windows, info) -> dict:
