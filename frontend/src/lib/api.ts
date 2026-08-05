@@ -58,11 +58,18 @@ export async function analyzeDemo(demo: Demo, team: "A" | "B"): Promise<Analysis
       body: JSON.stringify(payload),
     });
   } catch {
-    // network error / backend not running / blocked by CORS
+    // network error / backend not running / blocked by CORS. The right advice
+    // depends on where the page is served from: a deployed/static preview can't
+    // reach the viewer's own localhost, so telling them to start uvicorn is wrong.
+    const host = typeof window !== "undefined" ? window.location.hostname : "";
+    const isLocal = host === "localhost" || host === "127.0.0.1";
     throw new Error(
-      "Can't reach the analysis server. Start the backend locally " +
-        "(uvicorn app.main:app --port 8000). A live analysis needs a running server " +
-        "— it can't run on the static preview.",
+      isLocal
+        ? `Can't reach the analysis server at ${API_BASE}. Start the backend first: ` +
+          "run `uvicorn app.main:app --port 8000` in the backend/ folder, then try again."
+        : "Live AI analysis isn't available on this static preview — there's no server " +
+          "here to run the model (the API key must stay server-side). It works when the " +
+          "app runs with the backend up: locally, or on the full deployment.",
     );
   }
   if (!r.ok) {
