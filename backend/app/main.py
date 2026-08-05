@@ -59,6 +59,10 @@ app.add_middleware(
 
 class AnalyzeRequest(BaseModel):
     team: Literal["A", "B"]
+    language: Literal["en", "ru"] = "en"
+    # Optional free-form question. When present, the model answers it instead of
+    # writing the full analysis. Length-capped to keep cost bounded.
+    question: str | None = Field(default=None, max_length=500)
     # The parsed demo, minus the heavy position blob. build_features only reads
     # match/players/rounds/warnings, so the frontend strips `positions` before POST.
     demo: dict = Field(..., description="parsed out.json without `positions`")
@@ -99,7 +103,9 @@ def analyze(req: AnalyzeRequest) -> AnalyzeResponse:
         raise HTTPException(status_code=422, detail=f"Could not read the demo: {e}") from e
 
     try:
-        result = analysis_client.run_analysis(features)
+        result = analysis_client.run_analysis(
+            features, language=req.language, question=req.question
+        )
     except analysis_client.AnalysisError as e:
         msg = str(e)
         # Map the common billing rejection to a clear 402 so the UI can say

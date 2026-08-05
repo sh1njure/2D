@@ -157,6 +157,45 @@ def test_approx_tokens_reasonable():
     assert 0 < t < 4000
 
 
+def test_patterns_opening_dependency():
+    # Team A: opening won in R1,R3,R4 (won R1,R3) -> 2/3 = 67%; opening lost in R2
+    # (won 0) -> 0%.
+    f = build_features(_mk_demo(), "A")
+    dep = f["patterns"]["opening_dependency"]
+    assert dep["rounds_won_opening"] == 3
+    assert dep["rounds_lost_opening"] == 1
+    assert dep["round_win_pct_when_win_opening"] == 67
+    assert dep["round_win_pct_when_lose_opening"] == 0
+
+
+def test_patterns_recurring_utility_needs_repetition():
+    # The synthetic demo throws one flash once -> below the recurrence threshold.
+    f = build_features(_mk_demo(), "A")
+    assert isinstance(f["patterns"]["recurring_utility"], list)
+    assert f["patterns"]["recurring_utility"] == []
+
+
+@pytest.mark.skipif(not REAL_DEMO.exists(), reason="real out.json not present")
+def test_real_demo_patterns():
+    demo = json.loads(REAL_DEMO.read_text())
+    for team in ("A", "B"):
+        pat = build_features(demo, team)["patterns"]
+        # recurring utility entries all clear the min-repeat threshold
+        for e in pat["recurring_utility"]:
+            assert e["count"] >= 3
+            assert e["kind"] in {"flash", "he", "smoke", "molotov", "decoy"}
+        # dependency percentages are well-formed
+        dep = pat["opening_dependency"]
+        assert 0 <= dep["round_win_pct_when_win_opening"] <= 100
+        assert 0 <= dep["round_win_pct_when_lose_opening"] <= 100
+        # opening won + lost never exceeds rounds played
+        assert dep["rounds_won_opening"] + dep["rounds_lost_opening"] <= pat_rounds(demo, team)
+
+
+def pat_rounds(demo: dict, team: str) -> int:
+    return build_features(demo, team)["match"]["rounds_played"]
+
+
 @pytest.mark.skipif(not REAL_DEMO.exists(), reason="real out.json not present")
 def test_real_demo_invariants():
     demo = json.loads(REAL_DEMO.read_text())

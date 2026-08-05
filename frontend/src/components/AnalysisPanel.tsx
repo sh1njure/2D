@@ -18,6 +18,8 @@ type State =
 // text with real loading / error / result states.
 export function AnalysisPanel({ demo, onClose }: Props) {
   const [team, setTeam] = useState<"A" | "B">("A");
+  const [lang, setLang] = useState<"en" | "ru">("ru");
+  const [question, setQuestion] = useState("");
   const [state, setState] = useState<State>({ s: "idle" });
 
   const names = useMemo(() => {
@@ -29,12 +31,14 @@ export function AnalysisPanel({ demo, onClose }: Props) {
   const run = async () => {
     setState({ s: "loading" });
     try {
-      const result = await analyzeDemo(demo, team);
+      const result = await analyzeDemo(demo, team, { language: lang, question });
       setState({ s: "done", result });
     } catch (e) {
       setState({ s: "error", msg: e instanceof Error ? e.message : String(e) });
     }
   };
+
+  const asked = question.trim().length > 0;
 
   return (
     <div
@@ -60,9 +64,25 @@ export function AnalysisPanel({ demo, onClose }: Props) {
           </button>
         </div>
 
-        {/* team picker */}
+        {/* team picker + language */}
         <div className="border-b border-grid px-5 py-3">
-          <div className="mb-2 text-xs text-muted">Analyse which team?</div>
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-xs text-muted">Analyse which team?</span>
+            <div className="flex items-center gap-1">
+              <span className="text-[11px] text-muted">Language</span>
+              {(["ru", "en"] as const).map((l) => (
+                <button
+                  key={l}
+                  onClick={() => setLang(l)}
+                  className={`rounded px-2 py-0.5 text-[11px] uppercase transition-colors ${
+                    lang === l ? "bg-live text-bg" : "text-muted hover:bg-raised"
+                  }`}
+                >
+                  {l}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="grid grid-cols-2 gap-2">
             {(["A", "B"] as const).map((t) => (
               <button
@@ -90,16 +110,30 @@ export function AnalysisPanel({ demo, onClose }: Props) {
         {/* body: state machine */}
         <div className="min-h-[180px] flex-1 overflow-y-auto px-5 py-4">
           {state.s === "idle" && (
-            <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-              <p className="max-w-sm text-sm text-muted">
-                A coach-style written breakdown of team {team}: what decided the match and
-                what to change. Runs on the server; costs a fraction of a cent per match.
+            <div className="flex h-full flex-col gap-3">
+              <p className="text-sm text-muted">
+                A coach-style breakdown of team {team}: the patterns that decided the match
+                (recurring utility, opening-duel dependency, repeat first deaths) and what to
+                change. Or ask a specific question below.
               </p>
+              <label className="block">
+                <span className="mb-1 block text-xs text-muted">
+                  Your question <span className="text-muted/60">(optional)</span>
+                </span>
+                <textarea
+                  value={question}
+                  onChange={(e) => setQuestion(e.target.value)}
+                  rows={2}
+                  maxLength={500}
+                  placeholder="e.g. Do we throw the same utility every round? What should we practise?"
+                  className="w-full resize-none rounded-md border border-grid bg-bg px-3 py-2 text-sm text-ink placeholder:text-muted/60"
+                />
+              </label>
               <button
                 onClick={run}
-                className="rounded-md bg-live px-4 py-2 text-sm font-medium text-bg hover:brightness-110"
+                className="self-start rounded-md bg-live px-4 py-2 text-sm font-medium text-bg hover:brightness-110"
               >
-                Generate analysis
+                {asked ? "Ask about the match" : "Generate analysis"}
               </button>
             </div>
           )}

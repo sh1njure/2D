@@ -22,7 +22,14 @@ from __future__ import annotations
 
 from typing import Any
 
-FEATURE_VERSION = 1
+FEATURE_VERSION = 2
+
+# Utility thrown to ~the same spot this many times (or more) by the same player
+# counts as a recurring-usage pattern. Location is bucketed to a coarse grid.
+UTIL_PATTERN_MIN = 3
+UTIL_GRID = 256  # game units; ~a small area / callout-sized bucket
+# A player who loses the opening duel at least this many times is a repeat entry.
+FIRST_DEATH_MIN = 3
 
 # A trade kill: attacker avenges a just-killed teammate. 5s window at the demo's
 # tickrate. Kept here (not the parser) because it's a feature-layer judgement.
@@ -275,6 +282,8 @@ def build_features(demo: dict, team: str) -> dict[str, Any]:
         mk = p["multikill_rounds"]
         p["multikill_rounds"] = {k: mk[k] for k in ("2k", "3k", "4k", "5k") if k in mk}
 
+    patterns = _compute_patterns(demo, team, sid_team, sid_info, rounds_out, players_out)
+
     def _wr(d: dict[str, int]) -> dict:
         played, won = d["played"], d["won"]
         return {"played": played, "won": won, "win_pct": round(100 * won / played) if played else 0}
@@ -316,10 +325,90 @@ def build_features(demo: dict, team: str) -> dict[str, Any]:
             "bomb_plants": plants,
             "bomb_defuses": defuses,
         },
+        # Patterns are computed HERE (Python), not by the model — the model only
+        # narrates them. See _compute_patterns.
+        "patterns": patterns,
         "players": sorted(players_out, key=lambda p: p["kills"], reverse=True),
         "rounds": rounds_out,
     }
     return features
+
+
+def _compute_patterns(
+    demo: dict,
+    team: str,
+    sid_team: dict[str, str],
+    sid_info: dict[str, dict],
+    rounds_out: list[dict],
+    players_out: list[dict],
+) -> dict[str, Any]:
+    """Find recurring behaviours in the team's play. Pure counting over the parsed
+    events — the model never does this. Emits structured facts the prompt turns
+    into prose.
+
+    - recurring_utility: same player throwing the same grenade type to ~the same
+      spot across many rounds (e.g. the same lurk smoke every round).
+    - opening_dependency: how much the round result hinges on winning the opening
+      duel (round win% when the team drew first blood vs when it lost it).
+    - repeat_first_deaths: players who lose the opening duel repeatedly.
+    """
+    name_of = {sid: info["name"] for sid, info in sid_info.items()}
+
+    # --- recurring utility (bucketed by player + kind + coarse location) --------
+    buckets: dict[tuple[str, str, int, int], int] = {}
+    for r in demo["rounds"]:
+        for u in r["utility"]:
+            if sid_team.get(u["player"]) != team:
+                continue
+            if u.get("x") is None or u.get("y") is None:
+                continue
+            gx = round(u["x"] / UTIL_GRID)
+            gy = round(u["y"] / UTIL_GRID)
+            key = (name_of.get(u["player"], "?"), u["kind"], gx, gy)
+            buckets[key] = buckets.get(key, 0) + 1
+    recurring: list[dict[str, Any]] = [
+        {"player": k[0], "kind": k[1], "count": c}
+        for k, c in buckets.items()
+        if c >= UTIL_PATTERN_MIN
+    ]
+    recurring.sort(key=lambda d: d["count"], reverse=True)
+    recurring = recurring[:8]
+
+    # --- opening-duel dependency ------------------------------------------------
+    won_after_win = won_after_loss = n_win_open = n_loss_open = 0
+    for r in rounds_out:
+        if r["opening"] == "won":
+            n_win_open += 1
+            if r["won"]:
+                won_after_win += 1
+        elif r["opening"] == "lost":
+            n_loss_open += 1
+            if r["won"]:
+                won_after_loss += 1
+    opening_dependency = {
+        "rounds_won_opening": n_win_open,
+        "rounds_lost_opening": n_loss_open,
+        "round_win_pct_when_win_opening": round(100 * won_after_win / n_win_open)
+        if n_win_open
+        else 0,
+        "round_win_pct_when_lose_opening": round(100 * won_after_loss / n_loss_open)
+        if n_loss_open
+        else 0,
+    }
+
+    # --- players who repeatedly lose the opening duel ---------------------------
+    repeat_first_deaths: list[dict[str, Any]] = [
+        {"player": p["name"], "opening_deaths": p["opening_deaths"]}
+        for p in players_out
+        if p["opening_deaths"] >= FIRST_DEATH_MIN
+    ]
+    repeat_first_deaths.sort(key=lambda d: d["opening_deaths"], reverse=True)
+
+    return {
+        "recurring_utility": recurring,
+        "opening_dependency": opening_dependency,
+        "repeat_first_deaths": repeat_first_deaths,
+    }
 
 
 def approx_tokens(features: dict) -> int:

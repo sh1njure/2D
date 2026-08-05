@@ -38,11 +38,22 @@ export async function checkHealth(signal?: AbortSignal): Promise<Health> {
   return r.json();
 }
 
+export interface AnalyzeOpts {
+  language?: "en" | "ru";
+  question?: string | null;
+}
+
 /** POST /api/analyze. Strips `positions` from the demo (the server doesn't need
  *  the blob) to keep the request small. Throws Error with a user-readable message. */
-export async function analyzeDemo(demo: Demo, team: "A" | "B"): Promise<AnalysisResult> {
+export async function analyzeDemo(
+  demo: Demo,
+  team: "A" | "B",
+  opts: AnalyzeOpts = {},
+): Promise<AnalysisResult> {
   const payload = {
     team,
+    language: opts.language ?? "en",
+    question: opts.question?.trim() || null,
     demo: {
       match: demo.match,
       players: demo.players,

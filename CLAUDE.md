@@ -442,14 +442,26 @@ python scripts/parse_demo.py <path.dem> > out.json
         perspectives mirror (B's T rounds = A's CT rounds, opening-duel wins sum to
         rounds, etc.).
       - **Feature layer** (`app/features/match_features.py`): aggregates the parsed
-        events into a compact team-scoped JSON (~1.4k tokens for the sample; the
+        events into a compact team-scoped JSON (~1.6k tokens for the sample; the
         brief's 4-6k ceiling is enforced by a test). Emits side split, buy-type
         outcomes, opening-duel rate, trade kills, multikills, per-player stats,
         utility usage, and a compact per-round list. **Side-per-round is derived
         from data** (score delta + `winner_side`), not from assumed MR12/overtime
         switch rules — robust to any format. `FEATURE_VERSION` guards the schema.
-      - **Versioned prompt file** `app/analysis/prompts/coach_v1.md` (a file, per
-        the brief — not a string in code). `PROMPT_VERSION` recorded on every call.
+      - **Patterns computed in Python, not the model** (brief: pattern-finding is in
+        SQL/pandas, not the LLM). `_compute_patterns` emits a `patterns` block:
+        `recurring_utility` (same player throwing the same grenade type to ~the same
+        spot across many rounds — bucketed by a coarse coordinate grid), the team's
+        `opening_dependency` (round win% when it won vs lost the opening duel), and
+        `repeat_first_deaths`. The model only narrates these; it never finds them.
+      - **Versioned prompt file** `app/analysis/prompts/coach_v2.md` (a file, per the
+        brief — not a string in code). v2 leads with the detected patterns, writes in
+        the requested **language** (RU/EN — CS terms kept in English), and supports a
+        **question mode**: a non-empty user question is answered directly and
+        grounded in the data instead of the full write-up. `PROMPT_VERSION` recorded
+        on every call; system prompt is cached (language/question live in the user
+        turn, so caching is preserved). `--lang` and `--question` on the CLI; the
+        viewer's panel has a language toggle + an optional question box.
       - **Anthropic client** (`app/analysis/client.py`): key + model from env
         (`ANTHROPIC_API_KEY`, `ANALYSIS_MODEL_ID`, default
         `claude-haiku-4-5-20251001`); prompt caching on the system block; output

@@ -65,6 +65,12 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="CS2 demo -> AI match analysis (Phase 4 prototype).")
     ap.add_argument("demo_json", help="Path to out.json from scripts/parse_demo.py")
     ap.add_argument("--team", choices=["A", "B"], required=True, help="Which team to analyse")
+    ap.add_argument("--lang", choices=["en", "ru"], default="en", help="Output language")
+    ap.add_argument(
+        "--question",
+        default=None,
+        help="Ask a specific question instead of the full analysis (grounded in the data).",
+    )
     ap.add_argument(
         "--dry-run",
         action="store_true",
@@ -120,12 +126,16 @@ def main() -> int:
             )
         print("\n===== SYSTEM PROMPT (" + analysis_client.PROMPT_VERSION + ") =====\n")
         print(analysis_client.load_system_prompt())
-        print("\n===== USER MESSAGE (features JSON) =====\n")
-        print(json.dumps(features, indent=2, ensure_ascii=False))
+        print(f"\n===== USER MESSAGE (lang={args.lang}, question={args.question!r}) =====\n")
+        print(analysis_client.build_user_message(
+            features, language=args.lang, question=args.question
+        ))
         return 0
 
     try:
-        result = analysis_client.run_analysis(features)
+        result = analysis_client.run_analysis(
+            features, language=args.lang, question=args.question
+        )
     except analysis_client.AnalysisError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1

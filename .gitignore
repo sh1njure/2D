@@ -35,3 +35,6 @@ out*.json
 .idea/
 .vscode/
 frontend/*.tsbuildinfo
+
+# stray vite cache if a dev server is run from backend/
+.vite/

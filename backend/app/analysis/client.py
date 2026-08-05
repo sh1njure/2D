@@ -26,8 +26,12 @@ from pathlib import Path
 
 DEFAULT_MODEL_ID = "claude-haiku-4-5-20251001"
 DEFAULT_MAX_OUTPUT_TOKENS = 4000
-PROMPT_VERSION = "coach_v1"
+PROMPT_VERSION = "coach_v2"
 PROMPTS_DIR = Path(__file__).parent / "prompts"
+
+# Languages the analysis can be written in. Value is the name used in the prompt.
+LANGUAGES = {"en": "English", "ru": "Russian"}
+DEFAULT_LANGUAGE = "en"
 
 
 @dataclass
@@ -60,15 +64,25 @@ def load_system_prompt(version: str = PROMPT_VERSION) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def build_user_message(features: dict) -> str:
+def build_user_message(
+    features: dict, *, language: str = DEFAULT_LANGUAGE, question: str | None = None
+) -> str:
     """The user turn: a short instruction + the features JSON. All the facts live
-    in the JSON; the system prompt says how to write."""
+    in the JSON; the system prompt says how to write. `language` picks the output
+    language; a non-empty `question` switches to answering that question."""
     team = features.get("match", {}).get("analysed_team", "?")
+    lang_name = LANGUAGES.get(language, LANGUAGES[DEFAULT_LANGUAGE])
     compact = json.dumps(features, separators=(",", ":"), ensure_ascii=False)
-    return (
-        f"Write the post-match analysis for team {team}. "
-        f"Here is the aggregated match data as JSON:\n\n{compact}"
-    )
+    q = (question or "").strip()
+    if q:
+        instruction = (
+            f"Answer this question about the match for team {team}, in {lang_name}. "
+            f"Ground every claim in the data below; if the data can't answer it, say so.\n\n"
+            f"Question: {q}"
+        )
+    else:
+        instruction = f"Write the pattern-led post-match analysis for team {team}, in {lang_name}."
+    return f"{instruction}\n\nAggregated match data (JSON):\n\n{compact}"
 
 
 def _price_config() -> tuple[float, float, float]:
@@ -96,8 +110,16 @@ def _cost_usd(fresh_in: int, cache_write: int, cache_read: int, out_tok: int) ->
     return round(cost, 6)
 
 
-def run_analysis(features: dict, *, model_id: str | None = None) -> AnalysisResult:
+def run_analysis(
+    features: dict,
+    *,
+    language: str = DEFAULT_LANGUAGE,
+    question: str | None = None,
+    model_id: str | None = None,
+) -> AnalysisResult:
     """Call the model to narrate `features`. Requires ANTHROPIC_API_KEY in env.
+    `language` picks the output language; a non-empty `question` answers that
+    question instead of writing the full analysis.
 
     Raises AnalysisError on missing key, refusal, or transport failure.
     """
@@ -135,7 +157,12 @@ def run_analysis(features: dict, *, model_id: str | None = None) -> AnalysisResu
                     "cache_control": {"type": "ephemeral"},
                 }
             ],
-            messages=[{"role": "user", "content": build_user_message(features)}],
+            messages=[
+                {
+                    "role": "user",
+                    "content": build_user_message(features, language=language, question=question),
+                }
+            ],
         )
     except anthropic.APIError as e:  # pragma: no cover - needs network
         raise AnalysisError(f"Anthropic API call failed: {e}") from e
