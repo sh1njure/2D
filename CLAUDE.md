@@ -463,5 +463,22 @@ python scripts/parse_demo.py <path.dem> > out.json
         only made when `ANTHROPIC_API_KEY` is set (loaded from a gitignored `.env`).
       - Tests in `tests/test_match_features.py` (feature correctness + real-demo
         invariants). No live API call is made in tests.
+      - **Thin test server + viewer button** (so the client can try analysis "through
+        the site" before the real backend). `app/main.py` is a minimal FastAPI app
+        with ONE working feature: `POST /api/analyze` runs the feature layer + the
+        Anthropic call **server-side** (key from the gitignored `.env`, never in the
+        public bundle) and returns text + cost; `GET /api/health` reports whether a
+        key is present. The viewer's **"✨ AI analysis"** button (`AnalysisPanel.tsx`)
+        POSTs the parsed demo (minus the position blob) + chosen team and renders
+        real loading / error / result states. Run it with
+        `uvicorn app.main:app --port 8000`; the frontend targets it via `VITE_API_URL`
+        (default `http://localhost:8000`). This is NOT the full Phase 3 backend — no
+        upload/queue/DB/accounts — just an honest slice to exercise the analysis end
+        to end. On the static Pages build there is no server, so the button reports
+        that a live analysis needs the backend running.
+      - Verified end to end against a real key: request reaches Anthropic and the
+        pipeline is correct; the only thing pending is credits on the client's
+        account (a live call currently returns a clean 402 "add credits" message,
+        surfaced in the button's error state).
 - [ ] Phase 5 — Payments & access control
 - [ ] Phase 6 — Deploy (nginx, TLS, backups, runbook)

@@ -143,7 +143,13 @@ def run_analysis(features: dict, *, model_id: str | None = None) -> AnalysisResu
     if resp.stop_reason == "refusal":
         raise AnalysisError("Model declined to produce an analysis (stop_reason=refusal).")
 
-    text = "".join(block.text for block in resp.content if getattr(block, "type", None) == "text")
+    # content is a union of block types; only text blocks carry `.text`. getattr
+    # keeps this robust (and mypy-clean) across the many non-text block variants.
+    text = "".join(
+        getattr(block, "text", "")
+        for block in resp.content
+        if getattr(block, "type", None) == "text"
+    )
 
     u = resp.usage
     cache_read = getattr(u, "cache_read_input_tokens", 0) or 0

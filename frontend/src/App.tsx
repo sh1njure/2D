@@ -25,6 +25,7 @@ import { Timeline } from "./components/Timeline";
 import { RoundStrip } from "./components/RoundStrip";
 import { Scoreboard } from "./components/Scoreboard";
 import { AuthModal } from "./components/AuthModal";
+import { AnalysisPanel } from "./components/AnalysisPanel";
 
 const asset = (p: string) => `${import.meta.env.BASE_URL}${p.replace(/^\//, "")}`;
 
@@ -50,6 +51,7 @@ export default function App() {
   const [speed, setSpeed] = useState(1);
   const [debug, setDebug] = useState(false);
   const [authMode, setAuthMode] = useState<null | "signin" | "register">(null);
+  const [showAnalysis, setShowAnalysis] = useState(false);
 
   // measure the left zone so the map fills it as a square
   const leftRef = useRef<HTMLDivElement>(null);
@@ -216,6 +218,12 @@ export default function App() {
         </span>
         <div className="ml-auto flex items-center gap-2">
           <button
+            onClick={() => setShowAnalysis(true)}
+            className="rounded-md bg-live px-2.5 py-1 text-xs font-medium text-bg hover:brightness-110"
+          >
+            ✨ AI analysis
+          </button>
+          <button
             onClick={() => setDebug((d) => !d)}
             className={`rounded-md px-2.5 py-1 text-xs transition-colors ${
               debug ? "bg-live text-bg" : "text-muted hover:bg-raised hover:text-ink"
@@ -231,7 +239,7 @@ export default function App() {
           </button>
           <button
             onClick={() => setAuthMode("register")}
-            className="rounded-md bg-live px-2.5 py-1 text-xs font-medium text-bg hover:brightness-110"
+            className="rounded-md border border-grid px-2.5 py-1 text-xs hover:bg-raised"
           >
             Register
           </button>
@@ -348,6 +356,7 @@ export default function App() {
       </div>
 
       {authMode && <AuthModal mode={authMode} onClose={() => setAuthMode(null)} />}
+      {showAnalysis && <AnalysisPanel demo={demo} onClose={() => setShowAnalysis(false)} />}
     </div>
   );
 }

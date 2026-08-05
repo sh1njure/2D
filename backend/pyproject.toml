@@ -14,6 +14,10 @@ dependencies = [
     # Phase 4: match analysis. Pinned major; the Messages API surface we use
     # (messages.create, system cache_control, usage token fields) is stable.
     "anthropic>=0.40",
+    # Thin test server that exposes the analysis to the frontend button
+    # (server-side call so the key stays off the public bundle).
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
 ]
 
 [project.optional-dependencies]
